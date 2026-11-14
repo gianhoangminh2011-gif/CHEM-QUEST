@@ -27,12 +27,26 @@ function App() {
 
   const crystalCount = gameplayState.collectedResourceIds.length;
   const sampleCount = gameplayState.analyzedSampleIds.length;
-  const totalDiscoveries = crystalCount + sampleCount;
 
   const questProgress = getQuestProgress(
     FIRST_DISCOVERY_QUEST,
     gameplayState
   );
+
+  const totalQuestObjectives = FIRST_DISCOVERY_QUEST.objectives.reduce(
+    (sum, objective) => sum + objective.targetCount,
+    0
+  );
+
+  const totalQuestProgress = questProgress.objectives.reduce(
+    (sum, objective) => sum + objective.currentCount,
+    0
+  );
+
+  const progressPercentage =
+    totalQuestObjectives > 0
+      ? Math.min((totalQuestProgress / totalQuestObjectives) * 100, 100)
+      : 0;
 
   const elementRecords = getElementRecordsForResources(
     gameplayState.collectedResourceIds
@@ -101,14 +115,17 @@ function App() {
           <div className="progress-card">
             <p className="panel-label">EXPLORER PROGRESS</p>
             <div className="progress-number">
-              {String(totalDiscoveries).padStart(2, '0')}
-              <span> / 04</span>
+              {String(totalQuestProgress).padStart(2, '0')}
+              <span>
+                {' / '}
+                {String(totalQuestObjectives).padStart(2, '0')}
+              </span>
             </div>
             <div className="progress-track">
               <div
                 className="progress-fill"
                 style={{
-                  width: `${Math.min((totalDiscoveries / 4) * 100, 100)}%`,
+                  width: `${progressPercentage}%`,
                 }}
               />
             </div>
