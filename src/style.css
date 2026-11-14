@@ -1,4 +1,23 @@
 
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700;800&display=swap');
+
+:root {
+  font-family: 'Manrope', Arial, sans-serif;
+  color: #f2ead7;
+  background: #101b17;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --bg: #101b17;
+  --panel: #192820;
+  --panel-light: #20352a;
+  --gold: #d5b878;
+  --gold-bright: #f0d99d;
+  --text: #f2ead7;
+  --muted: #a4b0a4;
+  --line: rgba(213, 184, 120, 0.2);
+  --mono: 'DM Mono', monospace;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -12,41 +31,271 @@ body,
 }
 
 body {
-  background: #101820;
-  color: #f4f1e8;
-  font-family: Arial, sans-serif;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse at 50% 0%, #263b2e 0%, transparent 55%),
+    var(--bg);
+  color: var(--text);
+}
+
+button {
+  font: inherit;
 }
 
 .app {
+  width: 100%;
+  max-width: 1600px;
   min-height: 100vh;
-  padding: 24px;
+  margin: 0 auto;
+  padding: 24px clamp(16px, 4vw, 56px);
 }
 
-.game-header {
-  text-align: center;
-  margin-bottom: 20px;
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--line);
 }
 
-.game-header h1 {
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.brand-mark {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid var(--gold);
+  border-radius: 12px;
+  color: var(--gold-bright);
+  font-family: 'Playfair Display', serif;
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.brand h1 {
   margin: 0;
-  color: #f4d58d;
-  font-size: 32px;
-  letter-spacing: 4px;
+  color: var(--gold-bright);
+  font-family: 'Playfair Display', serif;
+  font-size: 22px;
+  letter-spacing: 2px;
 }
 
-.game-header p {
-  color: #b8c7cc;
-  margin-top: 8px;
+.brand p,
+.eyebrow,
+.panel-label,
+.player-info,
+.world-status,
+.game-footer,
+.app-footer {
+  font-family: var(--mono);
+  letter-spacing: 1.2px;
+}
+
+.brand p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.player-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.player-info strong {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--gold-bright);
+}
+
+.status-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #9acb83;
+  box-shadow: 0 0 10px rgba(154, 203, 131, 0.5);
+}
+
+.welcome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 34px 0;
+  padding: 28px 34px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: linear-gradient(110deg, #20372a, #17271f 70%);
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  color: var(--gold);
+  font-size: 10px;
+}
+
+.welcome h2 {
+  margin: 0;
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(25px, 4vw, 38px);
+  line-height: 1.2;
+}
+
+.welcome-text {
+  max-width: 600px;
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.welcome-symbol {
+  padding: 0 24px;
+  color: var(--gold);
+  font-size: 76px;
+  opacity: 0.75;
+}
+
+.game-layout {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr) 230px;
+  gap: 20px;
+  align-items: start;
+}
+
+.side-panel,
+.info-panel {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: rgba(25, 40, 32, 0.92);
+}
+
+.panel-label {
+  margin: 0 0 17px;
+  color: var(--gold);
+  font-size: 9px;
+}
+
+.nav-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 11px;
+  margin: 5px 0;
+  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.nav-item span {
+  color: var(--gold);
+  font-size: 17px;
+}
+
+.nav-item:hover,
+.nav-item.active {
+  border-color: var(--line);
+  background: rgba(213, 184, 120, 0.1);
+  color: var(--gold-bright);
+}
+
+.side-divider {
+  height: 1px;
+  margin: 20px 0;
+  background: var(--line);
+}
+
+.progress-number {
+  color: var(--gold-bright);
+  font-family: 'Playfair Display', serif;
+  font-size: 34px;
+  font-weight: 700;
+}
+
+.progress-number span {
+  color: var(--muted);
+  font-size: 17px;
+}
+
+.progress-track {
+  height: 6px;
+  margin: 12px 0;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #344439;
+}
+
+.progress-fill {
+  width: 10%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--gold);
+}
+
+.progress-caption {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.game-column {
+  min-width: 0;
+}
+
+.game-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.game-heading .eyebrow {
+  margin-bottom: 5px;
+}
+
+.game-heading h2 {
+  margin: 0;
+  font-family: 'Playfair Display', serif;
+  font-size: 25px;
+}
+
+.world-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 9px;
 }
 
 .game-container {
   width: 100%;
-  max-width: 1000px;
-  margin: 0 auto;
   overflow: hidden;
-  border: 1px solid #526574;
-  border-radius: 12px;
-  background: #17232d;
+  border: 1px solid rgba(213, 184, 120, 0.35);
+  border-radius: 13px;
+  background: #17271f;
+  box-shadow: 0 15px 45px rgba(0, 0, 0, 0.25);
 }
 
 .phaser-game {
@@ -57,5 +306,172 @@ body {
 .phaser-game canvas {
   display: block;
   max-width: 100%;
+  height: auto;
   margin: 0 auto;
+}
+
+.game-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.info-panel {
+  min-height: 270px;
+}
+
+.quest-icon {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  margin: 8px 0 16px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(213, 184, 120, 0.08);
+  color: var(--gold-bright);
+  font-size: 24px;
+}
+
+.info-panel h3 {
+  margin: 0 0 10px;
+  font-family: 'Playfair Display', serif;
+  font-size: 19px;
+}
+
+.info-description {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.8;
+}
+
+.quest-objective,
+.quest-reward {
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid var(--line);
+}
+
+.quest-objective span,
+.quest-reward span {
+  color: var(--gold);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 1px;
+}
+
+.quest-objective p {
+  margin-bottom: 0;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.quest-reward {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.quest-reward strong {
+  color: var(--gold-bright);
+  font-size: 13px;
+}
+
+.app-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 34px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 9px;
+}
+
+@media (max-width: 1100px) {
+  .game-layout {
+    grid-template-columns: 180px minmax(0, 1fr);
+  }
+
+  .info-panel {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 700px) {
+  .app {
+    padding: 16px 12px;
+  }
+
+  .topbar {
+    align-items: flex-start;
+  }
+
+  .brand h1 {
+    font-size: 18px;
+  }
+
+  .player-info {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    font-size: 8px;
+  }
+
+  .welcome {
+    margin: 22px 0;
+    padding: 22px 18px;
+  }
+
+  .welcome-symbol {
+    padding: 0;
+    font-size: 48px;
+  }
+
+  .game-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .side-panel,
+  .info-panel {
+    grid-column: auto;
+  }
+
+  .side-panel {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .side-panel > .panel-label,
+  .side-divider,
+  .progress-card {
+    grid-column: 1 / -1;
+  }
+
+  .nav-item {
+    justify-content: center;
+    padding: 10px 5px;
+    font-size: 10px;
+  }
+
+  .game-heading h2 {
+    font-size: 21px;
+  }
+
+  .world-status {
+    font-size: 8px;
+  }
+
+  .game-footer,
+  .app-footer {
+    font-size: 8px;
+  }
+
+  .app-footer {
+    flex-wrap: wrap;
+  }
 }
