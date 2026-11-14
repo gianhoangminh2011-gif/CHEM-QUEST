@@ -1,3 +1,4 @@
+
 export type GameplayStage =
   | 'explore'
   | 'collect'
@@ -23,25 +24,29 @@ export type GameplayAction =
   | { type: 'COMPLETE_PRACTICE'; id: string }
   | { type: 'UNLOCK_PROGRESSION'; id: string };
 
-export const initialGameplayState: GameplayState = {
-  discoveredNodeIds: [],
-  collectedResourceIds: [],
-  analyzedSampleIds: [],
-  craftedEquipmentIds: [],
-  completedPracticeIds: [],
-  unlockedProgressionIds: [],
-};
+function createEmptyIds(): string[] {
+  return [];
+}
+
+export const initialGameplayState: GameplayState = Object.freeze({
+  discoveredNodeIds: Object.freeze([]) as unknown as string[],
+  collectedResourceIds: Object.freeze([]) as unknown as string[],
+  analyzedSampleIds: Object.freeze([]) as unknown as string[],
+  craftedEquipmentIds: Object.freeze([]) as unknown as string[],
+  completedPracticeIds: Object.freeze([]) as unknown as string[],
+  unlockedProgressionIds: Object.freeze([]) as unknown as string[],
+}) as GameplayState;
 
 const listeners = new Set<(state: GameplayState) => void>();
 
 export function createGameplayState(): GameplayState {
   return {
-    discoveredNodeIds: [],
-    collectedResourceIds: [],
-    analyzedSampleIds: [],
-    craftedEquipmentIds: [],
-    completedPracticeIds: [],
-    unlockedProgressionIds: [],
+    discoveredNodeIds: createEmptyIds(),
+    collectedResourceIds: createEmptyIds(),
+    analyzedSampleIds: createEmptyIds(),
+    craftedEquipmentIds: createEmptyIds(),
+    completedPracticeIds: createEmptyIds(),
+    unlockedProgressionIds: createEmptyIds(),
   };
 }
 
