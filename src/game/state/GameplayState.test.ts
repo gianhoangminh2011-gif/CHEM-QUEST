@@ -1,5 +1,7 @@
+
 import { describe, it, expect } from 'vitest';
 import {
+  initialGameplayState,
   createGameplayState,
   updateGameplayState,
   subscribeGameplayState,
@@ -16,6 +18,25 @@ describe('GameplayState', () => {
     expect(state.craftedEquipmentIds).toEqual([]);
     expect(state.completedPracticeIds).toEqual([]);
     expect(state.unlockedProgressionIds).toEqual([]);
+  });
+
+  it('keeps the initial template immutable and creates independent states', () => {
+    const first = createGameplayState();
+    const second = createGameplayState();
+
+    expect(Object.isFrozen(initialGameplayState)).toBe(true);
+    expect(Object.isFrozen(initialGameplayState.collectedResourceIds))
+      .toBe(true);
+
+    expect(first).not.toBe(second);
+    expect(first.collectedResourceIds).not.toBe(
+      second.collectedResourceIds
+    );
+
+    first.collectedResourceIds.push('crystal-1');
+
+    expect(second.collectedResourceIds).toEqual([]);
+    expect(initialGameplayState.collectedResourceIds).toEqual([]);
   });
 
   it('handles all six gameplay actions', () => {
