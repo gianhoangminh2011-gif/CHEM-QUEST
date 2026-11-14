@@ -2,6 +2,13 @@
 import Phaser from 'phaser';
 import Player from '../entities/Player';
 
+type CrystalInteractable = {
+  x: number;
+  y: number;
+  object: Phaser.GameObjects.Container;
+  collected: boolean;
+};
+
 export default class BootScene extends Phaser.Scene {
   private player!: Player;
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -13,12 +20,24 @@ export default class BootScene extends Phaser.Scene {
     right: Phaser.Input.Keyboard.Key;
   };
 
+  private interactKey?: Phaser.Input.Keyboard.Key;
+
   private joystickBase!: Phaser.GameObjects.Arc;
   private joystickThumb!: Phaser.GameObjects.Arc;
   private joystickPointerId: number | null = null;
   private joystickVector = new Phaser.Math.Vector2(0, 0);
 
-  // Static world obstacles are managed by the scene.
+  private readonly interactionRange = 72;
+  private readonly crystals: CrystalInteractable[] = [];
+  private interactionTarget: CrystalInteractable | null = null;
+
+  private interactionPrompt!: Phaser.GameObjects.Text;
+  private interactionButton!: Phaser.GameObjects.Rectangle;
+  private interactionButtonText!: Phaser.GameObjects.Text;
+  private elementCounter!: Phaser.GameObjects.Text;
+
+  private collectedCrystalCount = 0;
+
   private readonly obstacles: Array<{
     x: number;
     y: number;
@@ -44,6 +63,9 @@ export default class BootScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#14251d');
 
     this.obstacles.length = 0;
+    this.crystals.length = 0;
+    this.collectedCrystalCount = 0;
+    this.interactionTarget = null;
 
     this.drawWorld();
     this.drawPond();
@@ -56,7 +78,6 @@ export default class BootScene extends Phaser.Scene {
       this.centerY
     );
 
-    // Keyboard is optional; touch controls work independently.
     if (this.input.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys();
 
@@ -66,9 +87,14 @@ export default class BootScene extends Phaser.Scene {
         left: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
         right: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
       };
+
+      this.interactKey = this.input.keyboard.addKey(
+        Phaser.Input.Keyboard.KeyCodes.E
+      );
     }
 
     this.createTouchControls();
+    this.createInteractionControls();
   }
 
   private createTouchControls() {
@@ -113,13 +139,11 @@ export default class BootScene extends Phaser.Scene {
     label.setScrollFactor(0);
     label.setDepth(100002);
 
-    // Only activate the joystick when the pointer is near its actual area.
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (this.joystickPointerId !== null) return;
 
       const dx = pointer.x - this.joystickX;
       const dy = pointer.y - this.joystickY;
-
       const hitRadius = this.joystickRadius + 18;
 
       if (dx * dx + dy * dy > hitRadius * hitRadius) return;
@@ -144,6 +168,79 @@ export default class BootScene extends Phaser.Scene {
         this.releaseJoystick();
       }
     });
+  }
+
+  private createInteractionControls() {
+    this.interactionPrompt = this.add.text(
+      480,
+      82,
+      '',
+      {
+        fontFamily: 'Arial',
+        fontSize: '15px',
+        color: '#b9fff0',
+        fontStyle: 'bold',
+        backgroundColor: '#10251e',
+        padding: { x: 12, y: 8 },
+      }
+    );
+
+    this.interactionPrompt.setOrigin(0.5);
+    this.interactionPrompt.setScrollFactor(0);
+    this.interactionPrompt.setDepth(100010);
+    this.interactionPrompt.setVisible(false);
+
+    this.interactionButton = this.add.rectangle(
+      850,
+      500,
+      142,
+      58,
+      0x245c50,
+      0.95
+    );
+
+    this.interactionButton.setStrokeStyle(3, 0x9cebd1);
+    this.interactionButton.setScrollFactor(0);
+    this.interactionButton.setDepth(100010);
+    this.interactionButton.setInteractive();
+    this.interactionButton.setVisible(false);
+
+    this.interactionButtonText = this.add.text(
+      850,
+      500,
+      'INTERACT',
+      {
+        fontFamily: 'Arial',
+        fontSize: '14px',
+        color: '#ffffff',
+        fontStyle: 'bold',
+        letterSpacing: 1,
+      }
+    );
+
+    this.interactionButtonText.setOrigin(0.5);
+    this.interactionButtonText.setScrollFactor(0);
+    this.interactionButtonText.setDepth(100011);
+    this.interactionButtonText.setVisible(false);
+
+    this.interactionButton.on('pointerdown', () => {
+      this.collectNearbyCrystal();
+    });
+
+    this.elementCounter = this.add.text(
+      780,
+      25,
+      'ELEMENTS: 0/3',
+      {
+        fontFamily: 'Arial',
+        fontSize: '13px',
+        color: '#b9fff0',
+        fontStyle: 'bold',
+      }
+    );
+
+    this.elementCounter.setScrollFactor(0);
+    this.elementCounter.setDepth(100010);
   }
 
   private updateJoystick(pointer: Phaser.Input.Pointer) {
@@ -256,7 +353,6 @@ export default class BootScene extends Phaser.Scene {
     water.setStrokeStyle(3, 0x78a99a, 0.8);
     water.setDepth(4);
 
-    // The pond is impassable.
     this.obstacles.push({
       x: 650,
       y: 302,
@@ -358,7 +454,6 @@ export default class BootScene extends Phaser.Scene {
     tree.setScale(scale);
     tree.setDepth(y);
 
-    // Block the trunk/base, not the decorative canopy.
     this.obstacles.push({
       x,
       y: y + 7 * scale,
@@ -403,6 +498,13 @@ export default class BootScene extends Phaser.Scene {
     );
 
     crystal.setDepth(y);
+
+    this.crystals.push({
+      x,
+      y,
+      object: crystal,
+      collected: false,
+    });
 
     this.tweens.add({
       targets: glow,
@@ -494,7 +596,6 @@ export default class BootScene extends Phaser.Scene {
   }
 
   private collidesWithObstacle(x: number, y: number) {
-    // Approximate the player's ground footprint with an expanded ellipse.
     const playerRadiusX = 10;
     const playerRadiusY = 9;
 
@@ -509,6 +610,71 @@ export default class BootScene extends Phaser.Scene {
     });
   }
 
+  private updateInteractionTarget() {
+    let nearestCrystal: CrystalInteractable | null = null;
+    let nearestDistance = this.interactionRange;
+
+    for (const crystal of this.crystals) {
+      if (crystal.collected) continue;
+
+      const distance = Phaser.Math.Distance.Between(
+        this.player.x,
+        this.player.y,
+        crystal.x,
+        crystal.y
+      );
+
+      if (distance <= nearestDistance) {
+        nearestDistance = distance;
+        nearestCrystal = crystal;
+      }
+    }
+
+    this.interactionTarget = nearestCrystal;
+
+    const canInteract = nearestCrystal !== null;
+
+    this.interactionPrompt.setVisible(canInteract);
+    this.interactionButton.setVisible(canInteract);
+    this.interactionButtonText.setVisible(canInteract);
+
+    if (canInteract) {
+      this.interactionPrompt.setText(
+        'CRYSTAL DETECTED  •  PRESS E'
+      );
+    }
+  }
+
+  private collectNearbyCrystal() {
+    const crystal = this.interactionTarget;
+
+    if (!crystal || crystal.collected) return;
+
+    const distance = Phaser.Math.Distance.Between(
+      this.player.x,
+      this.player.y,
+      crystal.x,
+      crystal.y
+    );
+
+    if (distance > this.interactionRange) return;
+
+    crystal.collected = true;
+    crystal.object.destroy();
+
+    this.collectedCrystalCount++;
+
+    this.elementCounter.setText(
+      `ELEMENTS: ${this.collectedCrystalCount}/${this.crystals.length}`
+    );
+
+    this.interactionTarget = null;
+
+    this.interactionPrompt.setVisible(false);
+    this.interactionButton.setVisible(false);
+    this.interactionButtonText.setVisible(false);
+  }
+
   update(_time: number, delta: number) {
     if (!this.player) return;
 
@@ -517,7 +683,6 @@ export default class BootScene extends Phaser.Scene {
     let dx = 0;
     let dy = 0;
 
-    // Keyboard input is optional.
     if (this.cursors && this.wasd) {
       if (this.cursors.left.isDown || this.wasd.left.isDown) {
         dx -= 1;
@@ -536,7 +701,6 @@ export default class BootScene extends Phaser.Scene {
       }
     }
 
-    // Convert joystick screen direction into isometric world direction.
     const joyX = this.joystickVector.x;
     const joyY = this.joystickVector.y;
 
@@ -559,14 +723,12 @@ export default class BootScene extends Phaser.Scene {
     const nextX = currentX + isoX;
     const nextY = currentY + isoY;
 
-    // Move normally when the destination is clear.
     if (
       this.isInsideWorld(nextX, nextY) &&
       !this.collidesWithObstacle(nextX, nextY)
     ) {
       this.player.setPosition(nextX, nextY);
     } else {
-      // Resolve each axis separately so the player can slide along obstacles.
       if (
         this.isInsideWorld(nextX, currentY) &&
         !this.collidesWithObstacle(nextX, currentY)
@@ -583,5 +745,14 @@ export default class BootScene extends Phaser.Scene {
     }
 
     this.player.setDepth(this.player.y);
+
+    this.updateInteractionTarget();
+
+    if (
+      this.interactKey &&
+      Phaser.Input.Keyboard.JustDown(this.interactKey)
+    ) {
+      this.collectNearbyCrystal();
+    }
   }
 }
