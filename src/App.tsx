@@ -9,6 +9,7 @@ import {
   FIRST_DISCOVERY_QUEST,
   getQuestProgress,
 } from './game/quests/QuestSystem';
+import { getElementRecordsForResources } from './game/elements/ElementCatalog';
 
 type Panel = 'quest' | 'codex' | 'bag';
 
@@ -32,6 +33,13 @@ function App() {
     FIRST_DISCOVERY_QUEST,
     gameplayState
   );
+
+  const elementRecords = getElementRecordsForResources(
+    gameplayState.collectedResourceIds
+  );
+
+  const unmappedResourceCount =
+    crystalCount - elementRecords.length;
 
   return (
     <main className="app">
@@ -177,15 +185,39 @@ function App() {
               <div className="quest-icon">⚛</div>
               <h3>Element Codex</h3>
               <p className="info-description">
-                Your field discoveries are recorded here as you explore.
+                Collected samples are recorded with their current identification
+                status.
               </p>
 
               <div className="quest-objective">
-                <span>COLLECTED CRYSTALS</span>
-                <p>{crystalCount} resource records</p>
-                {gameplayState.collectedResourceIds.map((id) => (
-                  <p key={id}>{id}</p>
+                <span>COLLECTED SAMPLES · {elementRecords.length}</span>
+
+                {elementRecords.length === 0 && (
+                  <p>No crystals collected yet.</p>
+                )}
+
+                {elementRecords.map((element) => (
+                  <div key={element.id}>
+                    <p>
+                      <strong>{element.symbol}</strong> · {element.name}
+                    </p>
+                    <p>{element.classification}</p>
+                    <p>{element.description}</p>
+                    <p>
+                      STATUS: {element.identificationStatus.toUpperCase()}
+                    </p>
+                    {element.atomicNumber !== null && (
+                      <p>ATOMIC NUMBER: {element.atomicNumber}</p>
+                    )}
+                  </div>
                 ))}
+
+                {unmappedResourceCount > 0 && (
+                  <p>
+                    {unmappedResourceCount} collected resource record(s) are
+                    not yet in the catalog.
+                  </p>
+                )}
               </div>
             </>
           )}
