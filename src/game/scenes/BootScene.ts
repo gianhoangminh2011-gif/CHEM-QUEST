@@ -1,6 +1,10 @@
-
 import Phaser from 'phaser';
 import Player from '../entities/Player';
+import {
+  createGameplayState,
+  resetGameplayState,
+  updateGameplayState,
+} from '../state/GameplayState';
 
 type WorldInteractable = {
   kind: 'crystal' | 'outcrop';
@@ -40,6 +44,7 @@ export default class BootScene extends Phaser.Scene {
 
   private collectedCrystalCount = 0;
   private analyzedOutcropCount = 0;
+  private gameplayState = createGameplayState();
 
   private readonly obstacles: Array<{
     x: number;
@@ -69,6 +74,7 @@ export default class BootScene extends Phaser.Scene {
     this.interactables.length = 0;
     this.collectedCrystalCount = 0;
     this.analyzedOutcropCount = 0;
+    this.gameplayState = resetGameplayState();
     this.interactionTarget = null;
 
     this.drawWorld();
@@ -99,6 +105,7 @@ export default class BootScene extends Phaser.Scene {
 
     this.createTouchControls();
     this.createInteractionControls();
+    this.createSceneResetTestControl();
   }
 
   private createTouchControls() {
@@ -264,6 +271,43 @@ export default class BootScene extends Phaser.Scene {
 
     this.elementCounter.setScrollFactor(0);
     this.elementCounter.setDepth(100010);
+  }
+
+  private createSceneResetTestControl() {
+    const button = this.add.rectangle(
+      850,
+      75,
+      132,
+      34,
+      0x6a4425,
+      0.95
+    );
+
+    button.setStrokeStyle(2, 0xf0d99d);
+    button.setScrollFactor(0);
+    button.setDepth(100020);
+    button.setInteractive({ useHandCursor: true });
+
+    const label = this.add.text(
+      850,
+      75,
+      'TEST RESET',
+      {
+        fontFamily: 'Arial',
+        fontSize: '12px',
+        color: '#ffffff',
+        fontStyle: 'bold',
+        letterSpacing: 1,
+      }
+    );
+
+    label.setOrigin(0.5);
+    label.setScrollFactor(0);
+    label.setDepth(100021);
+
+    button.on('pointerdown', () => {
+      this.scene.restart();
+    });
   }
 
   private showInteractionFeedback(message: string) {
@@ -756,6 +800,14 @@ export default class BootScene extends Phaser.Scene {
 
       this.collectedCrystalCount++;
 
+      this.gameplayState = updateGameplayState(
+        this.gameplayState,
+        {
+          type: 'COLLECT_RESOURCE',
+          id: `crystal-${target.x}-${target.y}`,
+        }
+      );
+
       this.elementCounter.setText(
         `ELEMENTS: ${this.collectedCrystalCount}/3`
       );
@@ -766,6 +818,14 @@ export default class BootScene extends Phaser.Scene {
     } else {
       target.used = true;
       this.analyzedOutcropCount++;
+
+      this.gameplayState = updateGameplayState(
+        this.gameplayState,
+        {
+          type: 'ANALYZE_SAMPLE',
+          id: `outcrop-${target.x}-${target.y}`,
+        }
+      );
 
       this.showInteractionFeedback(
         'MINERAL SAMPLE ANALYZED'
