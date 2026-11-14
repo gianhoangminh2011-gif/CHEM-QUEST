@@ -1,9 +1,18 @@
 
 import Phaser from 'phaser';
+import Player from '../entities/Player';
 
 export default class BootScene extends Phaser.Scene {
   private tileWidth = 64;
   private tileHeight = 32;
+  private player!: Player;
+  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+  private wasd!: {
+    up: Phaser.Input.Keyboard.Key;
+    down: Phaser.Input.Keyboard.Key;
+    left: Phaser.Input.Keyboard.Key;
+    right: Phaser.Input.Keyboard.Key;
+  };
 
   constructor() {
     super('BootScene');
@@ -45,9 +54,49 @@ export default class BootScene extends Phaser.Scene {
       fontStyle: 'bold',
     }).setOrigin(0.5);
 
-    this.add.text(480, 550, 'WORLD INITIALIZED', {
+    this.add.text(480, 570, 'WASD / ARROW KEYS TO MOVE', {
       fontSize: '14px',
       color: '#d8e4e8',
     }).setOrigin(0.5);
+
+    this.player = new Player(this, originX, originY + 150);
+
+    if (this.input.keyboard) {
+      this.cursors = this.input.keyboard.createCursorKeys();
+      this.wasd = {
+        up: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),
+        down: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+        left: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
+        right: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
+      };
+    }
+  }
+
+  update(_time: number, delta: number) {
+    if (!this.cursors || !this.wasd) return;
+
+    const speed = 0.18 * delta;
+    let dx = 0;
+    let dy = 0;
+
+    if (this.cursors.left.isDown || this.wasd.left.isDown) {
+      dx -= 1;
+    }
+    if (this.cursors.right.isDown || this.wasd.right.isDown) {
+      dx += 1;
+    }
+    if (this.cursors.up.isDown || this.wasd.up.isDown) {
+      dy -= 1;
+    }
+    if (this.cursors.down.isDown || this.wasd.down.isDown) {
+      dy += 1;
+    }
+
+    const isoX = (dx - dy) * speed;
+    const isoY = (dx + dy) * speed * 0.5;
+
+    this.player.x += isoX;
+    this.player.y += isoY;
+    this.player.setDepth(this.player.y);
   }
 }
