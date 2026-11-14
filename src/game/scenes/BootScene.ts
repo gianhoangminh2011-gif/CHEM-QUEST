@@ -1,6 +1,10 @@
 
 import Phaser from 'phaser';
 import Player from '../entities/Player';
+import {
+  createGameplayState,
+  updateGameplayState,
+} from '../state/GameplayState';
 
 type WorldInteractable = {
   kind: 'crystal' | 'outcrop';
@@ -40,6 +44,7 @@ export default class BootScene extends Phaser.Scene {
 
   private collectedCrystalCount = 0;
   private analyzedOutcropCount = 0;
+  private gameplayState = createGameplayState();
 
   private readonly obstacles: Array<{
     x: number;
@@ -69,6 +74,7 @@ export default class BootScene extends Phaser.Scene {
     this.interactables.length = 0;
     this.collectedCrystalCount = 0;
     this.analyzedOutcropCount = 0;
+    this.gameplayState = createGameplayState();
     this.interactionTarget = null;
 
     this.drawWorld();
@@ -756,6 +762,14 @@ export default class BootScene extends Phaser.Scene {
 
       this.collectedCrystalCount++;
 
+      this.gameplayState = updateGameplayState(
+        this.gameplayState,
+        {
+          type: 'COLLECT_RESOURCE',
+          id: `crystal-${target.x}-${target.y}`,
+        }
+      );
+
       this.elementCounter.setText(
         `ELEMENTS: ${this.collectedCrystalCount}/3`
       );
@@ -766,6 +780,14 @@ export default class BootScene extends Phaser.Scene {
     } else {
       target.used = true;
       this.analyzedOutcropCount++;
+
+      this.gameplayState = updateGameplayState(
+        this.gameplayState,
+        {
+          type: 'ANALYZE_SAMPLE',
+          id: `outcrop-${target.x}-${target.y}`,
+        }
+      );
 
       this.showInteractionFeedback(
         'MINERAL SAMPLE ANALYZED'
