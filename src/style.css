@@ -1,0 +1,61 @@
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #101820;
+  color: #f4f1e8;
+  font-family: Arial, sans-serif;
+}
+
+.app {
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.game-header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.game-header h1 {
+  margin: 0;
+  color: #f4d58d;
+  font-size: 32px;
+  letter-spacing: 4px;
+}
+
+.game-header p {
+  color: #b8c7cc;
+  margin-top: 8px;
+}
+
+.game-container {
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid #526574;
+  border-radius: 12px;
+  background: #17232d;
+}
+
+.phaser-game {
+  width: 100%;
+  min-height: 300px;
+}
+
+.phaser-game canvas {
+  display: block;
+  max-width: 100%;
+  margin: 0 auto;
+}
