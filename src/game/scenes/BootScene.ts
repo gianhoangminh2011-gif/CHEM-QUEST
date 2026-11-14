@@ -18,6 +18,14 @@ export default class BootScene extends Phaser.Scene {
   private joystickPointerId: number | null = null;
   private joystickVector = new Phaser.Math.Vector2(0, 0);
 
+  // Static world obstacles are managed by the scene.
+  private readonly obstacles: Array<{
+    x: number;
+    y: number;
+    radiusX: number;
+    radiusY: number;
+  }> = [];
+
   private readonly joystickX = 92;
   private readonly joystickY = 500;
   private readonly joystickRadius = 48;
@@ -34,6 +42,8 @@ export default class BootScene extends Phaser.Scene {
 
   create() {
     this.cameras.main.setBackgroundColor('#14251d');
+
+    this.obstacles.length = 0;
 
     this.drawWorld();
     this.drawPond();
@@ -246,6 +256,14 @@ export default class BootScene extends Phaser.Scene {
     water.setStrokeStyle(3, 0x78a99a, 0.8);
     water.setDepth(4);
 
+    // The pond is impassable.
+    this.obstacles.push({
+      x: 650,
+      y: 302,
+      radiusX: 87,
+      radiusY: 33,
+    });
+
     const highlights = this.add.graphics();
     highlights.lineStyle(2, 0x9ccbbb, 0.55);
     highlights.lineBetween(605, 290, 640, 285);
@@ -271,6 +289,13 @@ export default class BootScene extends Phaser.Scene {
       );
 
       stone.setDepth(y);
+
+      this.obstacles.push({
+        x,
+        y,
+        radiusX: 10,
+        radiusY: 7,
+      });
     });
   }
 
@@ -332,6 +357,14 @@ export default class BootScene extends Phaser.Scene {
 
     tree.setScale(scale);
     tree.setDepth(y);
+
+    // Block the trunk/base, not the decorative canopy.
+    this.obstacles.push({
+      x,
+      y: y + 7 * scale,
+      radiusX: 13 * scale,
+      radiusY: 11 * scale,
+    });
   }
 
   private addCrystal(x: number, y: number) {
@@ -388,6 +421,13 @@ export default class BootScene extends Phaser.Scene {
 
     rock.setStrokeStyle(2, 0x46594b);
     rock.setDepth(y);
+
+    this.obstacles.push({
+      x,
+      y,
+      radiusX: 17,
+      radiusY: 11,
+    });
   }
 
   private addBush(x: number, y: number) {
@@ -398,6 +438,13 @@ export default class BootScene extends Phaser.Scene {
     ]);
 
     bush.setDepth(y);
+
+    this.obstacles.push({
+      x,
+      y,
+      radiusX: 19,
+      radiusY: 14,
+    });
   }
 
   private createWorldLabels() {
@@ -436,6 +483,30 @@ export default class BootScene extends Phaser.Scene {
     );
 
     marker.setDepth(10000);
+  }
+
+  private isInsideWorld(x: number, y: number) {
+    const distance =
+      Math.abs(x - this.centerX) / this.mapRadiusX +
+      Math.abs(y - this.centerY) / this.mapRadiusY;
+
+    return distance <= 0.96;
+  }
+
+  private collidesWithObstacle(x: number, y: number) {
+    // Approximate the player's ground footprint with an expanded ellipse.
+    const playerRadiusX = 10;
+    const playerRadiusY = 9;
+
+    return this.obstacles.some((obstacle) => {
+      const dx = (x - obstacle.x) /
+        (obstacle.radiusX + playerRadiusX);
+
+      const dy = (y - obstacle.y) /
+        (obstacle.radiusY + playerRadiusY);
+
+      return dx * dx + dy * dy < 1;
+    });
   }
 
   update(_time: number, delta: number) {
@@ -482,17 +553,33 @@ export default class BootScene extends Phaser.Scene {
     const isoX = (dx - dy) * speed;
     const isoY = (dx + dy) * speed * 0.5;
 
-    const nextX = this.player.x + isoX;
-    const nextY = this.player.y + isoY;
+    const currentX = this.player.x;
+    const currentY = this.player.y;
 
-    // Keep the player inside the current world boundary.
-    const distance =
-      Math.abs(nextX - this.centerX) / this.mapRadiusX +
-      Math.abs(nextY - this.centerY) / this.mapRadiusY;
+    const nextX = currentX + isoX;
+    const nextY = currentY + isoY;
 
-    if (distance <= 0.96) {
-      this.player.x = nextX;
-      this.player.y = nextY;
+    // Move normally when the destination is clear.
+    if (
+      this.isInsideWorld(nextX, nextY) &&
+      !this.collidesWithObstacle(nextX, nextY)
+    ) {
+      this.player.setPosition(nextX, nextY);
+    } else {
+      // Resolve each axis separately so the player can slide along obstacles.
+      if (
+        this.isInsideWorld(nextX, currentY) &&
+        !this.collidesWithObstacle(nextX, currentY)
+      ) {
+        this.player.x = nextX;
+      }
+
+      if (
+        this.isInsideWorld(this.player.x, nextY) &&
+        !this.collidesWithObstacle(this.player.x, nextY)
+      ) {
+        this.player.y = nextY;
+      }
     }
 
     this.player.setDepth(this.player.y);
