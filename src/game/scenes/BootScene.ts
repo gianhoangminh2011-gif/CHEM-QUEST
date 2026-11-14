@@ -1,4 +1,3 @@
-
 import Phaser from 'phaser';
 import Player from '../entities/Player';
 import {
@@ -106,6 +105,7 @@ export default class BootScene extends Phaser.Scene {
 
     this.createTouchControls();
     this.createInteractionControls();
+    this.createSceneResetTestControl();
   }
 
   private createTouchControls() {
@@ -271,6 +271,43 @@ export default class BootScene extends Phaser.Scene {
 
     this.elementCounter.setScrollFactor(0);
     this.elementCounter.setDepth(100010);
+  }
+
+  private createSceneResetTestControl() {
+    const button = this.add.rectangle(
+      850,
+      75,
+      132,
+      34,
+      0x6a4425,
+      0.95
+    );
+
+    button.setStrokeStyle(2, 0xf0d99d);
+    button.setScrollFactor(0);
+    button.setDepth(100020);
+    button.setInteractive({ useHandCursor: true });
+
+    const label = this.add.text(
+      850,
+      75,
+      'TEST RESET',
+      {
+        fontFamily: 'Arial',
+        fontSize: '12px',
+        color: '#ffffff',
+        fontStyle: 'bold',
+        letterSpacing: 1,
+      }
+    );
+
+    label.setOrigin(0.5);
+    label.setScrollFactor(0);
+    label.setDepth(100021);
+
+    button.on('pointerdown', () => {
+      this.scene.restart();
+    });
   }
 
   private showInteractionFeedback(message: string) {
