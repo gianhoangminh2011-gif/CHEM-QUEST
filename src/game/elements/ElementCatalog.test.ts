@@ -6,20 +6,14 @@ import {
 } from './ElementCatalog';
 
 describe('ElementCatalog', () => {
-  it('defines the three current world crystal samples', () => {
+  it('defines three unidentified fictional samples', () => {
     expect(ELEMENT_CATALOG).toHaveLength(3);
 
-    expect(
-      ELEMENT_CATALOG.every(
-        (element) => element.identificationStatus === 'unidentified'
-      )
-    ).toBe(true);
-
-    expect(
-      ELEMENT_CATALOG.every(
-        (element) => element.atomicNumber === null && element.symbol === '?'
-      )
-    ).toBe(true);
+    for (const element of ELEMENT_CATALOG) {
+      expect(element.identificationStatus).toBe('unidentified');
+      expect(element.atomicNumber).toBeNull();
+      expect(element.symbol).toBe('?');
+    }
   });
 
   it('maps collected resource IDs to catalog records', () => {
@@ -28,37 +22,43 @@ describe('ElementCatalog', () => {
       'crystal-760-335',
     ]);
 
-    expect(records.map((element) => element.id)).toEqual([
+    expect(records.map((record) => record.id)).toEqual([
       'crystal-sample-01',
       'crystal-sample-02',
     ]);
   });
 
-  it('ignores resource IDs that are not in the catalog', () => {
-    expect(
-      getElementRecordsForResources(['unknown-resource'])
-    ).toEqual([]);
+  it('ignores unknown resource IDs', () => {
+    const records = getElementRecordsForResources([
+      'unknown-resource',
+      'crystal-540-210',
+    ]);
+
+    expect(records.map((record) => record.id)).toEqual([
+      'crystal-sample-01',
+    ]);
   });
 
-  it('does not return duplicate records', () => {
+  it('removes duplicate records', () => {
     const records = getElementRecordsForResources([
       'crystal-540-210',
       'crystal-540-210',
     ]);
 
     expect(records).toHaveLength(1);
-    expect(records[0].id).toBe('crystal-sample-01');
   });
 
-  it('preserves the order of collected resource IDs', () => {
+  it('preserves collection order', () => {
     const records = getElementRecordsForResources([
       'crystal-225-310',
       'crystal-540-210',
+      'crystal-760-335',
     ]);
 
-    expect(records.map((element) => element.id)).toEqual([
+    expect(records.map((record) => record.id)).toEqual([
       'crystal-sample-03',
       'crystal-sample-01',
+      'crystal-sample-02',
     ]);
   });
 });
