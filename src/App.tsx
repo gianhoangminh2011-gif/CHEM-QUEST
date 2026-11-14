@@ -1,9 +1,14 @@
+
 import { useCallback, useState } from 'react';
 import PhaserGame from './game/PhaserGame';
 import {
   createGameplayState,
   type GameplayState,
 } from './game/state/GameplayState';
+import {
+  FIRST_DISCOVERY_QUEST,
+  getQuestProgress,
+} from './game/quests/QuestSystem';
 
 type Panel = 'quest' | 'codex' | 'bag';
 
@@ -22,7 +27,11 @@ function App() {
   const crystalCount = gameplayState.collectedResourceIds.length;
   const sampleCount = gameplayState.analyzedSampleIds.length;
   const totalDiscoveries = crystalCount + sampleCount;
-  const questCompleted = crystalCount >= 3 && sampleCount >= 1;
+
+  const questProgress = getQuestProgress(
+    FIRST_DISCOVERY_QUEST,
+    gameplayState
+  );
 
   return (
     <main className="app">
@@ -96,7 +105,7 @@ function App() {
               />
             </div>
             <p className="progress-caption">
-              {questCompleted
+              {questProgress.completed
                 ? 'Discovery objectives completed.'
                 : 'Keep exploring and collecting.'}
             </p>
@@ -138,26 +147,26 @@ function App() {
           {activePanel === 'quest' && (
             <>
               <div className="quest-icon">✧</div>
-              <h3>The First Discovery</h3>
+              <h3>{FIRST_DISCOVERY_QUEST.title}</h3>
               <p className="info-description">
-                Explore Emerald Frontier, collect crystals and analyze a
-                mineral sample.
+                {FIRST_DISCOVERY_QUEST.description}
               </p>
 
               <div className="quest-objective">
                 <span>OBJECTIVES</span>
-                <p>
-                  Crystals collected: {crystalCount}/3
-                </p>
-                <p>
-                  Mineral samples analyzed: {sampleCount}/1
-                </p>
+                {questProgress.objectives.map((objective) => (
+                  <p key={objective.id}>
+                    {objective.description}: {objective.currentCount}/
+                    {objective.targetCount}
+                    {objective.completed ? ' ✓' : ''}
+                  </p>
+                ))}
               </div>
 
               <div className="quest-reward">
                 <span>QUEST STATUS</span>
                 <strong>
-                  {questCompleted ? 'COMPLETED' : 'IN PROGRESS'}
+                  {questProgress.completed ? 'COMPLETED' : 'IN PROGRESS'}
                 </strong>
               </div>
             </>
