@@ -4,9 +4,9 @@ import Player from '../entities/Player';
 
 export default class BootScene extends Phaser.Scene {
   private player!: Player;
-  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+  private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
 
-  private wasd!: {
+  private wasd?: {
     up: Phaser.Input.Keyboard.Key;
     down: Phaser.Input.Keyboard.Key;
     left: Phaser.Input.Keyboard.Key;
@@ -46,6 +46,7 @@ export default class BootScene extends Phaser.Scene {
       this.centerY
     );
 
+    // Keyboard is optional; touch controls work independently.
     if (this.input.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys();
 
@@ -136,7 +137,11 @@ export default class BootScene extends Phaser.Scene {
     const dy = pointer.y - this.joystickY;
 
     const distance = Math.sqrt(dx * dx + dy * dy);
-    const clampedDistance = Math.min(distance, this.joystickMaxDistance);
+    const clampedDistance = Math.min(
+      distance,
+      this.joystickMaxDistance
+    );
+
     const angle = Math.atan2(dy, dx);
 
     const moveX = Math.cos(angle) * clampedDistance;
@@ -180,9 +185,15 @@ export default class BootScene extends Phaser.Scene {
 
         const points = [
           new Phaser.Math.Vector2(x, y),
-          new Phaser.Math.Vector2(x + tileWidth / 2, y + tileHeight / 2),
+          new Phaser.Math.Vector2(
+            x + tileWidth / 2,
+            y + tileHeight / 2
+          ),
           new Phaser.Math.Vector2(x, y + tileHeight),
-          new Phaser.Math.Vector2(x - tileWidth / 2, y + tileHeight / 2),
+          new Phaser.Math.Vector2(
+            x - tileWidth / 2,
+            y + tileHeight / 2
+          ),
         ];
 
         const colors = [
@@ -196,6 +207,7 @@ export default class BootScene extends Phaser.Scene {
 
         graphics.fillStyle(color, 1);
         graphics.fillPoints(points, true);
+
         graphics.lineStyle(1, 0x6c9670, 0.22);
         graphics.strokePoints(points, true);
       }
@@ -219,10 +231,14 @@ export default class BootScene extends Phaser.Scene {
   }
 
   private drawPond() {
-    const shadow = this.add.ellipse(650, 320, 190, 75, 0x10251e, 0.45);
+    const shadow = this.add.ellipse(
+      650, 320, 190, 75, 0x10251e, 0.45
+    );
     shadow.setDepth(3);
 
-    const water = this.add.ellipse(650, 302, 174, 66, 0x245c5a, 0.95);
+    const water = this.add.ellipse(
+      650, 302, 174, 66, 0x245c5a, 0.95
+    );
     water.setStrokeStyle(3, 0x78a99a, 0.8);
     water.setDepth(4);
 
@@ -279,15 +295,27 @@ export default class BootScene extends Phaser.Scene {
   }
 
   private addTree(x: number, y: number, scale = 1) {
-    const shadow = this.add.ellipse(0, 12, 48, 20, 0x10251b, 0.4);
+    const shadow = this.add.ellipse(
+      0, 12, 48, 20, 0x10251b, 0.4
+    );
 
-    const trunk = this.add.rectangle(0, -4, 15, 35, 0x795438);
+    const trunk = this.add.rectangle(
+      0, -4, 15, 35, 0x795438
+    );
     trunk.setStrokeStyle(2, 0x513b2a);
 
-    const leavesBack = this.add.circle(0, -33, 25, 0x244c36);
-    const leavesLeft = this.add.circle(-13, -28, 19, 0x356747);
-    const leavesRight = this.add.circle(13, -28, 19, 0x477b4d);
-    const leavesTop = this.add.circle(0, -47, 18, 0x578653);
+    const leavesBack = this.add.circle(
+      0, -33, 25, 0x244c36
+    );
+    const leavesLeft = this.add.circle(
+      -13, -28, 19, 0x356747
+    );
+    const leavesRight = this.add.circle(
+      13, -28, 19, 0x477b4d
+    );
+    const leavesTop = this.add.circle(
+      0, -47, 18, 0x578653
+    );
 
     const tree = this.add.container(x, y, [
       shadow,
@@ -303,7 +331,10 @@ export default class BootScene extends Phaser.Scene {
   }
 
   private addCrystal(x: number, y: number) {
-    const glow = this.add.ellipse(0, 5, 42, 20, 0x65d7bd, 0.12);
+    const glow = this.add.ellipse(
+      0, 5, 42, 20, 0x65d7bd, 0.12
+    );
+
     const crystalGraphics = this.add.graphics();
 
     const crystalPoints = [
@@ -316,6 +347,7 @@ export default class BootScene extends Phaser.Scene {
 
     crystalGraphics.fillStyle(0x4ec8b1, 1);
     crystalGraphics.fillPoints(crystalPoints, true);
+
     crystalGraphics.lineStyle(2, 0xb3fff0, 0.8);
     crystalGraphics.strokePoints(crystalPoints, true);
 
@@ -329,7 +361,10 @@ export default class BootScene extends Phaser.Scene {
       true
     );
 
-    const crystal = this.add.container(x, y, [glow, crystalGraphics]);
+    const crystal = this.add.container(
+      x, y, [glow, crystalGraphics]
+    );
+
     crystal.setDepth(y);
 
     this.tweens.add({
@@ -343,7 +378,10 @@ export default class BootScene extends Phaser.Scene {
   }
 
   private addRock(x: number, y: number) {
-    const rock = this.add.ellipse(x, y, 30, 17, 0x758578);
+    const rock = this.add.ellipse(
+      x, y, 30, 17, 0x758578
+    );
+
     rock.setStrokeStyle(2, 0x46594b);
     rock.setDepth(y);
   }
@@ -359,46 +397,69 @@ export default class BootScene extends Phaser.Scene {
   }
 
   private createWorldLabels() {
-    const title = this.add.text(26, 22, 'EMERALD FRONTIER', {
-      fontFamily: 'Arial',
-      fontSize: '19px',
-      color: '#f0d99d',
-      fontStyle: 'bold',
-      letterSpacing: 2,
-    });
+    const title = this.add.text(
+      26, 22, 'EMERALD FRONTIER',
+      {
+        fontFamily: 'Arial',
+        fontSize: '19px',
+        color: '#f0d99d',
+        fontStyle: 'bold',
+        letterSpacing: 2,
+      }
+    );
 
     title.setDepth(10000);
 
-    const subtitle = this.add.text(28, 48, 'WORLD 01  /  THE BEGINNING', {
-      fontFamily: 'Arial',
-      fontSize: '10px',
-      color: '#b6c9ae',
-      letterSpacing: 1,
-    });
+    const subtitle = this.add.text(
+      28, 48, 'WORLD 01  /  THE BEGINNING',
+      {
+        fontFamily: 'Arial',
+        fontSize: '10px',
+        color: '#b6c9ae',
+        letterSpacing: 1,
+      }
+    );
 
     subtitle.setDepth(10000);
 
-    const marker = this.add.text(26, 565, '✦  UNKNOWN ELEMENTS DETECTED', {
-      fontFamily: 'Arial',
-      fontSize: '10px',
-      color: '#b9d9bd',
-    });
+    const marker = this.add.text(
+      26, 565, '✦  UNKNOWN ELEMENTS DETECTED',
+      {
+        fontFamily: 'Arial',
+        fontSize: '10px',
+        color: '#b9d9bd',
+      }
+    );
 
     marker.setDepth(10000);
   }
 
   update(_time: number, delta: number) {
-    if (!this.cursors || !this.wasd || !this.player) return;
+    if (!this.player) return;
 
     const speed = 0.18 * delta;
 
     let dx = 0;
     let dy = 0;
 
-    if (this.cursors.left.isDown || this.wasd.left.isDown) dx -= 1;
-    if (this.cursors.right.isDown || this.wasd.right.isDown) dx += 1;
-    if (this.cursors.up.isDown || this.wasd.up.isDown) dy -= 1;
-    if (this.cursors.down.isDown || this.wasd.down.isDown) dy += 1;
+    // Keyboard input is optional.
+    if (this.cursors && this.wasd) {
+      if (this.cursors.left.isDown || this.wasd.left.isDown) {
+        dx -= 1;
+      }
+
+      if (this.cursors.right.isDown || this.wasd.right.isDown) {
+        dx += 1;
+      }
+
+      if (this.cursors.up.isDown || this.wasd.up.isDown) {
+        dy -= 1;
+      }
+
+      if (this.cursors.down.isDown || this.wasd.down.isDown) {
+        dy += 1;
+      }
+    }
 
     // Convert joystick screen direction into isometric world direction.
     const joyX = this.joystickVector.x;
@@ -420,6 +481,7 @@ export default class BootScene extends Phaser.Scene {
     const nextX = this.player.x + isoX;
     const nextY = this.player.y + isoY;
 
+    // Keep the player inside the current world boundary.
     const distance =
       Math.abs(nextX - this.centerX) / this.mapRadiusX +
       Math.abs(nextY - this.centerY) / this.mapRadiusY;
