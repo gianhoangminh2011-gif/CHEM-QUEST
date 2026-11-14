@@ -1,11 +1,28 @@
-
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import PhaserGame from './game/PhaserGame';
+import {
+  createGameplayState,
+  type GameplayState,
+} from './game/state/GameplayState';
 
 type Panel = 'quest' | 'codex' | 'bag';
 
 function App() {
   const [activePanel, setActivePanel] = useState<Panel>('quest');
+  const [gameplayState, setGameplayState] =
+    useState<GameplayState>(createGameplayState);
+
+  const handleGameplayStateChange = useCallback(
+    (nextState: GameplayState) => {
+      setGameplayState(nextState);
+    },
+    []
+  );
+
+  const crystalCount = gameplayState.collectedResourceIds.length;
+  const sampleCount = gameplayState.analyzedSampleIds.length;
+  const totalDiscoveries = crystalCount + sampleCount;
+  const questCompleted = crystalCount >= 3 && sampleCount >= 1;
 
   return (
     <main className="app">
@@ -66,11 +83,23 @@ function App() {
 
           <div className="progress-card">
             <p className="panel-label">EXPLORER PROGRESS</p>
-            <div className="progress-number">01 <span>/ 10</span></div>
-            <div className="progress-track">
-              <div className="progress-fill" />
+            <div className="progress-number">
+              {String(totalDiscoveries).padStart(2, '0')}
+              <span> / 04</span>
             </div>
-            <p className="progress-caption">Your adventure begins.</p>
+            <div className="progress-track">
+              <div
+                className="progress-fill"
+                style={{
+                  width: `${Math.min((totalDiscoveries / 4) * 100, 100)}%`,
+                }}
+              />
+            </div>
+            <p className="progress-caption">
+              {questCompleted
+                ? 'Discovery objectives completed.'
+                : 'Keep exploring and collecting.'}
+            </p>
           </div>
         </aside>
 
@@ -86,7 +115,9 @@ function App() {
           </div>
 
           <section className="game-container">
-            <PhaserGame />
+            <PhaserGame
+              onGameplayStateChange={handleGameplayStateChange}
+            />
           </section>
 
           <div className="game-footer">
@@ -109,15 +140,25 @@ function App() {
               <div className="quest-icon">✧</div>
               <h3>The First Discovery</h3>
               <p className="info-description">
-                Begin your journey and explore the mysterious Emerald Frontier.
+                Explore Emerald Frontier, collect crystals and analyze a
+                mineral sample.
               </p>
+
               <div className="quest-objective">
-                <span>OBJECTIVE</span>
-                <p>Explore the surrounding area</p>
+                <span>OBJECTIVES</span>
+                <p>
+                  Crystals collected: {crystalCount}/3
+                </p>
+                <p>
+                  Mineral samples analyzed: {sampleCount}/1
+                </p>
               </div>
+
               <div className="quest-reward">
-                <span>REWARD</span>
-                <strong>+100 XP</strong>
+                <span>QUEST STATUS</span>
+                <strong>
+                  {questCompleted ? 'COMPLETED' : 'IN PROGRESS'}
+                </strong>
               </div>
             </>
           )}
@@ -127,12 +168,15 @@ function App() {
               <div className="quest-icon">⚛</div>
               <h3>Element Codex</h3>
               <p className="info-description">
-                Your scientific encyclopedia. Discover chemical elements and
-                record their properties as you progress.
+                Your field discoveries are recorded here as you explore.
               </p>
+
               <div className="quest-objective">
-                <span>DISCOVERED ELEMENTS</span>
-                <p>0 elements recorded</p>
+                <span>COLLECTED CRYSTALS</span>
+                <p>{crystalCount} resource records</p>
+                {gameplayState.collectedResourceIds.map((id) => (
+                  <p key={id}>{id}</p>
+                ))}
               </div>
             </>
           )}
@@ -142,12 +186,21 @@ function App() {
               <div className="quest-icon">▣</div>
               <h3>Explorer's Bag</h3>
               <p className="info-description">
-                Important items and discoveries collected during your journey
-                will appear here.
+                Resources collected during your journey.
               </p>
+
               <div className="quest-objective">
-                <span>ITEMS COLLECTED</span>
-                <p>Your inventory is empty.</p>
+                <span>COLLECTED RESOURCES</span>
+                <p>
+                  {crystalCount === 0
+                    ? 'Your inventory is empty.'
+                    : `${crystalCount} crystal resource(s) collected.`}
+                </p>
+              </div>
+
+              <div className="quest-objective">
+                <span>ANALYZED SAMPLES</span>
+                <p>{sampleCount} mineral sample(s) analyzed.</p>
               </div>
             </>
           )}
