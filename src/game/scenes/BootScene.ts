@@ -723,7 +723,7 @@ export default class BootScene extends Phaser.Scene {
     this.interactionButton.setVisible(canInteract);
     this.interactionButtonText.setVisible(canInteract);
 
-    if (!canInteract) return;
+    if (!nearest) return;
 
     if (nearest.kind === 'crystal') {
       this.interactionPrompt.setText(
