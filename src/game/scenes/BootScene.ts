@@ -3,6 +3,7 @@ import Phaser from 'phaser';
 import Player from '../entities/Player';
 import {
   createGameplayState,
+  resetGameplayState,
   updateGameplayState,
 } from '../state/GameplayState';
 
@@ -74,7 +75,7 @@ export default class BootScene extends Phaser.Scene {
     this.interactables.length = 0;
     this.collectedCrystalCount = 0;
     this.analyzedOutcropCount = 0;
-    this.gameplayState = createGameplayState();
+    this.gameplayState = resetGameplayState();
     this.interactionTarget = null;
 
     this.drawWorld();
