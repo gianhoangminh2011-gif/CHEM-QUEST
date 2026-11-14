@@ -103,12 +103,16 @@ export default class BootScene extends Phaser.Scene {
     label.setScrollFactor(0);
     label.setDepth(100002);
 
+    // Only activate the joystick when the pointer is near its actual area.
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (
-        this.joystickPointerId !== null ||
-        pointer.x > 170 ||
-        pointer.y < 400
-      ) return;
+      if (this.joystickPointerId !== null) return;
+
+      const dx = pointer.x - this.joystickX;
+      const dy = pointer.y - this.joystickY;
+
+      const hitRadius = this.joystickRadius + 18;
+
+      if (dx * dx + dy * dy > hitRadius * hitRadius) return;
 
       this.joystickPointerId = pointer.id;
       this.updateJoystick(pointer);
