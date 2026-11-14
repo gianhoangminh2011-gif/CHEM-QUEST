@@ -1,4 +1,3 @@
-
 export type GameplayStage =
   | 'explore'
   | 'collect'
@@ -60,10 +59,6 @@ export function subscribeGameplayState(
   };
 }
 
-/**
- * Creates a fresh gameplay state and broadcasts it to every subscriber.
- * Use this when a Phaser Scene starts or resets.
- */
 export function resetGameplayState(): GameplayState {
   const nextState = createGameplayState();
   notifyGameplayState(nextState);
@@ -87,73 +82,52 @@ export function updateGameplayState(
   let nextState: GameplayState;
 
   switch (action.type) {
-    case 'DISCOVER_NODE':
-      nextState = {
-        ...state,
-        discoveredNodeIds: addUniqueId(
-          state.discoveredNodeIds,
-          action.id
-        ),
-      };
+    case 'DISCOVER_NODE': {
+      const ids = addUniqueId(state.discoveredNodeIds, action.id);
+      if (ids === state.discoveredNodeIds) return state;
+      nextState = { ...state, discoveredNodeIds: ids };
       break;
+    }
 
-    case 'COLLECT_RESOURCE':
-      nextState = {
-        ...state,
-        collectedResourceIds: addUniqueId(
-          state.collectedResourceIds,
-          action.id
-        ),
-      };
+    case 'COLLECT_RESOURCE': {
+      const ids = addUniqueId(state.collectedResourceIds, action.id);
+      if (ids === state.collectedResourceIds) return state;
+      nextState = { ...state, collectedResourceIds: ids };
       break;
+    }
 
-    case 'ANALYZE_SAMPLE':
-      nextState = {
-        ...state,
-        analyzedSampleIds: addUniqueId(
-          state.analyzedSampleIds,
-          action.id
-        ),
-      };
+    case 'ANALYZE_SAMPLE': {
+      const ids = addUniqueId(state.analyzedSampleIds, action.id);
+      if (ids === state.analyzedSampleIds) return state;
+      nextState = { ...state, analyzedSampleIds: ids };
       break;
+    }
 
-    case 'CRAFT_EQUIPMENT':
-      nextState = {
-        ...state,
-        craftedEquipmentIds: addUniqueId(
-          state.craftedEquipmentIds,
-          action.id
-        ),
-      };
+    case 'CRAFT_EQUIPMENT': {
+      const ids = addUniqueId(state.craftedEquipmentIds, action.id);
+      if (ids === state.craftedEquipmentIds) return state;
+      nextState = { ...state, craftedEquipmentIds: ids };
       break;
+    }
 
-    case 'COMPLETE_PRACTICE':
-      nextState = {
-        ...state,
-        completedPracticeIds: addUniqueId(
-          state.completedPracticeIds,
-          action.id
-        ),
-      };
+    case 'COMPLETE_PRACTICE': {
+      const ids = addUniqueId(state.completedPracticeIds, action.id);
+      if (ids === state.completedPracticeIds) return state;
+      nextState = { ...state, completedPracticeIds: ids };
       break;
+    }
 
-    case 'UNLOCK_PROGRESSION':
-      nextState = {
-        ...state,
-        unlockedProgressionIds: addUniqueId(
-          state.unlockedProgressionIds,
-          action.id
-        ),
-      };
+    case 'UNLOCK_PROGRESSION': {
+      const ids = addUniqueId(state.unlockedProgressionIds, action.id);
+      if (ids === state.unlockedProgressionIds) return state;
+      nextState = { ...state, unlockedProgressionIds: ids };
       break;
+    }
 
     default:
       return state;
   }
 
-  if (nextState !== state) {
-    notifyGameplayState(nextState);
-  }
-
+  notifyGameplayState(nextState);
   return nextState;
 }
