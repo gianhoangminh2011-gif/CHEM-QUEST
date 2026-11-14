@@ -1,4 +1,3 @@
-
 import Phaser from 'phaser';
 import Player from '../entities/Player';
 
@@ -12,6 +11,17 @@ export default class BootScene extends Phaser.Scene {
     left: Phaser.Input.Keyboard.Key;
     right: Phaser.Input.Keyboard.Key;
   };
+
+  // Virtual joystick
+  private joystickBase!: Phaser.GameObjects.Arc;
+  private joystickThumb!: Phaser.GameObjects.Arc;
+  private joystickPointerId: number | null = null;
+  private joystickVector = new Phaser.Math.Vector2(0, 0);
+
+  private readonly joystickX = 92;
+  private readonly joystickY = 500;
+  private readonly joystickRadius = 48;
+  private readonly joystickMaxDistance = 34;
 
   private readonly centerX = 480;
   private readonly centerY = 302;
@@ -56,6 +66,156 @@ export default class BootScene extends Phaser.Scene {
         ),
       };
     }
+
+    // Mobile touch controls
+    this.createTouchControls();
+  }
+
+  private createTouchControls() {
+    // Joystick base
+    this.joystickBase = this.add.circle(
+      this.joystickX,
+      this.joystickY,
+      this.joystickRadius,
+      0x101b17,
+      0.62
+    );
+
+    this.joystickBase.setStrokeStyle(
+      3,
+      0xd5b878,
+      0.9
+    );
+
+    this.joystickBase.setScrollFactor(0);
+    this.joystickBase.setDepth(100000);
+
+    // Joystick thumb
+    this.joystickThumb = this.add.circle(
+      this.joystickX,
+      this.joystickY,
+      18,
+      0xd5b878,
+      0.95
+    );
+
+    this.joystickThumb.setStrokeStyle(
+      2,
+      0xf5e5b8,
+      1
+    );
+
+    this.joystickThumb.setScrollFactor(0);
+    this.joystickThumb.setDepth(100001);
+
+    // Joystick label
+    const label = this.add.text(
+      this.joystickX,
+      this.joystickY + 59,
+      'MOVE',
+      {
+        fontFamily: 'Arial',
+        fontSize: '10px',
+        color: '#f0d99d',
+        fontStyle: 'bold',
+        letterSpacing: 2,
+      }
+    );
+
+    label.setOrigin(0.5);
+    label.setScrollFactor(0);
+    label.setDepth(100002);
+
+    // Touch begins
+    this.input.on(
+      'pointerdown',
+      (pointer: Phaser.Input.Pointer) => {
+        if (
+          this.joystickPointerId !== null ||
+          pointer.x > 170 ||
+          pointer.y < 400
+        ) {
+          return;
+        }
+
+        this.joystickPointerId = pointer.id;
+        this.updateJoystick(pointer);
+      }
+    );
+
+    // Touch moves
+    this.input.on(
+      'pointermove',
+      (pointer: Phaser.Input.Pointer) => {
+        if (pointer.id !== this.joystickPointerId) {
+          return;
+        }
+
+        this.updateJoystick(pointer);
+      }
+    );
+
+    // Touch ends
+    this.input.on(
+      'pointerup',
+      (pointer: Phaser.Input.Pointer) => {
+        if (pointer.id === this.joystickPointerId) {
+          this.releaseJoystick();
+        }
+      }
+    );
+
+    this.input.on(
+      'pointerupoutside',
+      (pointer: Phaser.Input.Pointer) => {
+        if (pointer.id === this.joystickPointerId) {
+          this.releaseJoystick();
+        }
+      }
+    );
+  }
+
+  private updateJoystick(pointer: Phaser.Input.Pointer) {
+    const dx = pointer.x - this.joystickX;
+    const dy = pointer.y - this.joystickY;
+
+    const distance = Math.sqrt(
+      dx * dx + dy * dy
+    );
+
+    const clampedDistance = Math.min(
+      distance,
+      this.joystickMaxDistance
+    );
+
+    const angle = Math.atan2(dy, dx);
+
+    const moveX =
+      Math.cos(angle) * clampedDistance;
+
+    const moveY =
+      Math.sin(angle) * clampedDistance;
+
+    this.joystickThumb.setPosition(
+      this.joystickX + moveX,
+      this.joystickY + moveY
+    );
+
+    this.joystickVector.set(
+      moveX / this.joystickMaxDistance,
+      moveY / this.joystickMaxDistance
+    );
+  }
+
+  private releaseJoystick() {
+    this.joystickPointerId = null;
+
+    this.joystickVector.set(0, 0);
+
+    this.joystickThumb.setPosition(
+      this.joystickX,
+      this.joystickY
+    );
   }
 
   private drawWorld() {
@@ -449,6 +609,7 @@ export default class BootScene extends Phaser.Scene {
     let dx = 0;
     let dy = 0;
 
+    // Keyboard: left and right
     if (
       this.cursors.left.isDown ||
       this.wasd.left.isDown
@@ -463,6 +624,7 @@ export default class BootScene extends Phaser.Scene {
       dx += 1;
     }
 
+    // Keyboard: up and down
     if (
       this.cursors.up.isDown ||
       this.wasd.up.isDown
@@ -475,6 +637,20 @@ export default class BootScene extends Phaser.Scene {
       this.wasd.down.isDown
     ) {
       dy += 1;
+    }
+
+    // Mobile joystick movement
+    dx += this.joystickVector.x;
+    dy += this.joystickVector.y;
+
+    // Normalize diagonal movement
+    const inputLength = Math.sqrt(
+      dx * dx + dy * dy
+    );
+
+    if (inputLength > 1) {
+      dx /= inputLength;
+      dy /= inputLength;
     }
 
     // Isometric movement
