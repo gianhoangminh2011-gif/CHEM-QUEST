@@ -2,11 +2,12 @@
 import Phaser from 'phaser';
 import Player from '../entities/Player';
 
-type CrystalInteractable = {
+type WorldInteractable = {
+  kind: 'crystal' | 'outcrop';
   x: number;
   y: number;
   object: Phaser.GameObjects.Container;
-  collected: boolean;
+  used: boolean;
 };
 
 export default class BootScene extends Phaser.Scene {
@@ -28,15 +29,17 @@ export default class BootScene extends Phaser.Scene {
   private joystickVector = new Phaser.Math.Vector2(0, 0);
 
   private readonly interactionRange = 72;
-  private readonly crystals: CrystalInteractable[] = [];
-  private interactionTarget: CrystalInteractable | null = null;
+  private readonly interactables: WorldInteractable[] = [];
+  private interactionTarget: WorldInteractable | null = null;
 
   private interactionPrompt!: Phaser.GameObjects.Text;
   private interactionButton!: Phaser.GameObjects.Rectangle;
   private interactionButtonText!: Phaser.GameObjects.Text;
   private elementCounter!: Phaser.GameObjects.Text;
+  private interactionFeedback!: Phaser.GameObjects.Text;
 
   private collectedCrystalCount = 0;
+  private analyzedOutcropCount = 0;
 
   private readonly obstacles: Array<{
     x: number;
@@ -63,8 +66,9 @@ export default class BootScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#14251d');
 
     this.obstacles.length = 0;
-    this.crystals.length = 0;
+    this.interactables.length = 0;
     this.collectedCrystalCount = 0;
+    this.analyzedOutcropCount = 0;
     this.interactionTarget = null;
 
     this.drawWorld();
@@ -190,6 +194,25 @@ export default class BootScene extends Phaser.Scene {
     this.interactionPrompt.setDepth(100010);
     this.interactionPrompt.setVisible(false);
 
+    this.interactionFeedback = this.add.text(
+      480,
+      125,
+      '',
+      {
+        fontFamily: 'Arial',
+        fontSize: '12px',
+        color: '#f0d99d',
+        fontStyle: 'bold',
+        backgroundColor: '#10251e',
+        padding: { x: 10, y: 6 },
+      }
+    );
+
+    this.interactionFeedback.setOrigin(0.5);
+    this.interactionFeedback.setScrollFactor(0);
+    this.interactionFeedback.setDepth(100010);
+    this.interactionFeedback.setVisible(false);
+
     this.interactionButton = this.add.rectangle(
       850,
       500,
@@ -224,7 +247,7 @@ export default class BootScene extends Phaser.Scene {
     this.interactionButtonText.setVisible(false);
 
     this.interactionButton.on('pointerdown', () => {
-      this.collectNearbyCrystal();
+      this.interactNearbyObject();
     });
 
     this.elementCounter = this.add.text(
@@ -241,6 +264,17 @@ export default class BootScene extends Phaser.Scene {
 
     this.elementCounter.setScrollFactor(0);
     this.elementCounter.setDepth(100010);
+  }
+
+  private showInteractionFeedback(message: string) {
+    this.interactionFeedback.setText(message);
+    this.interactionFeedback.setVisible(true);
+
+    this.time.delayedCall(1800, () => {
+      if (this.interactionFeedback.active) {
+        this.interactionFeedback.setVisible(false);
+      }
+    });
   }
 
   private updateJoystick(pointer: Phaser.Input.Pointer) {
@@ -410,7 +444,7 @@ export default class BootScene extends Phaser.Scene {
     this.addCrystal(760, 335);
     this.addCrystal(225, 310);
 
-    this.addRock(350, 315);
+    this.addMineralOutcrop(350, 315);
     this.addRock(570, 390);
     this.addRock(790, 235);
 
@@ -499,11 +533,12 @@ export default class BootScene extends Phaser.Scene {
 
     crystal.setDepth(y);
 
-    this.crystals.push({
+    this.interactables.push({
+      kind: 'crystal',
       x,
       y,
       object: crystal,
-      collected: false,
+      used: false,
     });
 
     this.tweens.add({
@@ -513,6 +548,56 @@ export default class BootScene extends Phaser.Scene {
       yoyo: true,
       repeat: -1,
       ease: 'Sine.easeInOut',
+    });
+  }
+
+  private addMineralOutcrop(x: number, y: number) {
+    const shadow = this.add.ellipse(
+      0, 8, 48, 19, 0x10251e, 0.45
+    );
+
+    const rock = this.add.ellipse(
+      0, 0, 39, 27, 0x697c70
+    );
+
+    rock.setStrokeStyle(2, 0x354d40);
+
+    const veins = this.add.graphics();
+
+    veins.lineStyle(3, 0xd5b878, 0.95);
+    veins.lineBetween(-12, -7, -4, -2);
+    veins.lineBetween(-4, -2, 2, -9);
+    veins.lineBetween(2, -9, 11, -4);
+
+    veins.lineStyle(2, 0x9cebd1, 0.9);
+    veins.lineBetween(-7, 7, 1, 2);
+    veins.lineBetween(1, 2, 9, 6);
+
+    const highlight = this.add.circle(
+      -9, -7, 3, 0xf0d99d, 0.9
+    );
+
+    const outcrop = this.add.container(
+      x,
+      y,
+      [shadow, rock, veins, highlight]
+    );
+
+    outcrop.setDepth(y);
+
+    this.interactables.push({
+      kind: 'outcrop',
+      x,
+      y,
+      object: outcrop,
+      used: false,
+    });
+
+    this.obstacles.push({
+      x,
+      y,
+      radiusX: 20,
+      radiusY: 15,
     });
   }
 
@@ -611,65 +696,83 @@ export default class BootScene extends Phaser.Scene {
   }
 
   private updateInteractionTarget() {
-    let nearestCrystal: CrystalInteractable | null = null;
+    let nearest: WorldInteractable | null = null;
     let nearestDistance = this.interactionRange;
 
-    for (const crystal of this.crystals) {
-      if (crystal.collected) continue;
+    for (const item of this.interactables) {
+      if (item.used) continue;
 
       const distance = Phaser.Math.Distance.Between(
         this.player.x,
         this.player.y,
-        crystal.x,
-        crystal.y
+        item.x,
+        item.y
       );
 
       if (distance <= nearestDistance) {
         nearestDistance = distance;
-        nearestCrystal = crystal;
+        nearest = item;
       }
     }
 
-    this.interactionTarget = nearestCrystal;
+    this.interactionTarget = nearest;
 
-    const canInteract = nearestCrystal !== null;
+    const canInteract = nearest !== null;
 
     this.interactionPrompt.setVisible(canInteract);
     this.interactionButton.setVisible(canInteract);
     this.interactionButtonText.setVisible(canInteract);
 
-    if (canInteract) {
+    if (!canInteract) return;
+
+    if (nearest.kind === 'crystal') {
       this.interactionPrompt.setText(
         'CRYSTAL DETECTED  •  PRESS E'
+      );
+    } else {
+      this.interactionPrompt.setText(
+        'MINERAL OUTCROP  •  PRESS E'
       );
     }
   }
 
-  private collectNearbyCrystal() {
-    const crystal = this.interactionTarget;
+  private interactNearbyObject() {
+    const target = this.interactionTarget;
 
-    if (!crystal || crystal.collected) return;
+    if (!target || target.used) return;
 
     const distance = Phaser.Math.Distance.Between(
       this.player.x,
       this.player.y,
-      crystal.x,
-      crystal.y
+      target.x,
+      target.y
     );
 
     if (distance > this.interactionRange) return;
 
-    crystal.collected = true;
-    crystal.object.destroy();
+    if (target.kind === 'crystal') {
+      target.used = true;
+      target.object.destroy();
 
-    this.collectedCrystalCount++;
+      this.collectedCrystalCount++;
 
-    this.elementCounter.setText(
-      `ELEMENTS: ${this.collectedCrystalCount}/${this.crystals.length}`
-    );
+      this.elementCounter.setText(
+        `ELEMENTS: ${this.collectedCrystalCount}/3`
+      );
+
+      this.showInteractionFeedback(
+        'CRYSTAL COLLECTED'
+      );
+    } else {
+      target.used = true;
+      this.analyzedOutcropCount++;
+
+      this.showInteractionFeedback(
+        'MINERAL SAMPLE ANALYZED'
+      );
+    }
 
     this.interactionTarget = null;
-
     this.interactionPrompt.setVisible(false);
     this.interactionButton.setVisible(false);
     this.interactionButtonText.setVisible(false);
@@ -752,7 +855,7 @@ export default class BootScene extends Phaser.Scene {
       this.interactKey &&
       Phaser.Input.Keyboard.JustDown(this.interactKey)
     ) {
-      this.collectNearbyCrystal();
+      this.interactNearbyObject();
     }
   }
 }
