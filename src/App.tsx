@@ -1,17 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+
+import { useState } from 'react';
 import PhaserGame from './game/PhaserGame';
 
 type Panel = 'quest' | 'codex' | 'bag';
 
 function App() {
-  const gameRef = useRef<HTMLDivElement>(null);
   const [activePanel, setActivePanel] = useState<Panel>('quest');
-
-  useEffect(() => {
-    return () => {
-      gameRef.current?.replaceChildren();
-    };
-  }, []);
 
   return (
     <main className="app">
@@ -91,7 +85,7 @@ function App() {
             </span>
           </div>
 
-          <section className="game-container" ref={gameRef}>
+          <section className="game-container">
             <PhaserGame />
           </section>
 
