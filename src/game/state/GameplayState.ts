@@ -1,3 +1,4 @@
+
 export type GameplayStage =
   | 'explore'
   | 'collect'
@@ -45,6 +46,10 @@ export function createGameplayState(): GameplayState {
   };
 }
 
+function notifyGameplayState(state: GameplayState): void {
+  listeners.forEach((listener) => listener(state));
+}
+
 export function subscribeGameplayState(
   listener: (state: GameplayState) => void
 ): () => void {
@@ -55,12 +60,24 @@ export function subscribeGameplayState(
   };
 }
 
+/**
+ * Creates a fresh gameplay state and broadcasts it to every subscriber.
+ * Use this when a Phaser Scene starts or resets.
+ */
+export function resetGameplayState(): GameplayState {
+  const nextState = createGameplayState();
+  notifyGameplayState(nextState);
+  return nextState;
+}
+
 function addUniqueId(ids: string[], id: string): string[] {
-  if (!id.trim() || ids.includes(id)) {
+  const normalizedId = id.trim();
+
+  if (!normalizedId || ids.includes(normalizedId)) {
     return ids;
   }
 
-  return [...ids, id];
+  return [...ids, normalizedId];
 }
 
 export function updateGameplayState(
@@ -134,7 +151,9 @@ export function updateGameplayState(
       return state;
   }
 
-  listeners.forEach((listener) => listener(nextState));
+  if (nextState !== state) {
+    notifyGameplayState(nextState);
+  }
 
   return nextState;
 }
