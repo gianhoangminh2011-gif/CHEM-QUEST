@@ -300,13 +300,16 @@ button {
 
 .phaser-game {
   width: 100%;
-  min-height: 300px;
+  min-height: 0;
+  aspect-ratio: 8 / 5;
+  overflow: hidden;
+  touch-action: none;
 }
 
 .phaser-game canvas {
   display: block;
   max-width: 100%;
-  height: auto;
+  touch-action: none;
   margin: 0 auto;
 }
 
