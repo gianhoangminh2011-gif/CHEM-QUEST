@@ -20,14 +20,7 @@ const phaserMock = vi.hoisted(() => ({
 }));
 
 vi.mock('phaser', () => {
-  class MockPhaserGame {
-    static AUTO = 'AUTO';
-
-    static Scale = {
-      FIT: 'FIT',
-      CENTER_BOTH: 'CENTER_BOTH',
-    };
-
+  class MockGame {
     config: any;
     destroyCalls = 0;
     destroyRemoveCanvas?: boolean;
@@ -43,7 +36,16 @@ vi.mock('phaser', () => {
     }
   }
 
-  return { default: MockPhaserGame };
+  return {
+    default: {
+      Game: MockGame,
+      AUTO: 'AUTO',
+      Scale: {
+        FIT: 'FIT',
+        CENTER_BOTH: 'CENTER_BOTH',
+      },
+    },
+  };
 });
 
 vi.mock('./scenes/BootScene', () => ({
