@@ -1,4 +1,14 @@
 
+import {
+  analyzeSample,
+  collectSample,
+  type AnalysisResult,
+  type CollectSampleInput,
+  type ResearchSample,
+  type SampleType,
+  type ChemistryTransition,
+} from '../chemistry/ChemistrySystem';
+
 export type GameplayStage =
   | 'explore'
   | 'collect'
@@ -10,7 +20,8 @@ export type GameplayStage =
 export interface GameplayState {
   discoveredNodeIds: string[];
   collectedResourceIds: string[];
-  analyzedSampleIds: string[];
+  researchSamplesById: Record<string, ResearchSample>;
+  analysisResultsBySampleId: Record<string, AnalysisResult>;
   craftedEquipmentIds: string[];
   completedPracticeIds: string[];
   unlockedProgressionIds: string[];
@@ -19,7 +30,12 @@ export interface GameplayState {
 export type GameplayAction =
   | { type: 'DISCOVER_NODE'; id: string }
   | { type: 'COLLECT_RESOURCE'; id: string }
-  | { type: 'ANALYZE_SAMPLE'; id: string }
+  | {
+      type: 'COLLECT_SAMPLE';
+      sourceId: string;
+      sampleType: SampleType;
+    }
+  | { type: 'ANALYZE_SAMPLE'; sampleId: string }
   | { type: 'CRAFT_EQUIPMENT'; id: string }
   | { type: 'COMPLETE_PRACTICE'; id: string }
   | { type: 'UNLOCK_PROGRESSION'; id: string };
@@ -28,10 +44,19 @@ function createEmptyIds(): string[] {
   return [];
 }
 
+function createEmptyRecordMap<T>(): Record<string, T> {
+  return Object.create(null) as Record<string, T>;
+}
+
 export const initialGameplayState: GameplayState = Object.freeze({
   discoveredNodeIds: Object.freeze([]) as unknown as string[],
   collectedResourceIds: Object.freeze([]) as unknown as string[],
-  analyzedSampleIds: Object.freeze([]) as unknown as string[],
+  researchSamplesById: Object.freeze(
+    createEmptyRecordMap<ResearchSample>()
+  ),
+  analysisResultsBySampleId: Object.freeze(
+    createEmptyRecordMap<AnalysisResult>()
+  ),
   craftedEquipmentIds: Object.freeze([]) as unknown as string[],
   completedPracticeIds: Object.freeze([]) as unknown as string[],
   unlockedProgressionIds: Object.freeze([]) as unknown as string[],
@@ -43,7 +68,9 @@ export function createGameplayState(): GameplayState {
   return {
     discoveredNodeIds: createEmptyIds(),
     collectedResourceIds: createEmptyIds(),
-    analyzedSampleIds: createEmptyIds(),
+    researchSamplesById: createEmptyRecordMap<ResearchSample>(),
+    analysisResultsBySampleId:
+      createEmptyRecordMap<AnalysisResult>(),
     craftedEquipmentIds: createEmptyIds(),
     completedPracticeIds: createEmptyIds(),
     unlockedProgressionIds: createEmptyIds(),
@@ -80,6 +107,32 @@ function addUniqueId(ids: string[], id: string): string[] {
   return [...ids, normalizedId];
 }
 
+export function applyCollectSample(
+  state: GameplayState,
+  input: CollectSampleInput
+): ChemistryTransition<ResearchSample> {
+  const transition = collectSample(state, input);
+
+  if (transition.state !== state) {
+    notifyGameplayState(transition.state);
+  }
+
+  return transition;
+}
+
+export function applyAnalyzeSample(
+  state: GameplayState,
+  sampleId: string
+): ChemistryTransition<AnalysisResult> {
+  const transition = analyzeSample(state, sampleId);
+
+  if (transition.state !== state) {
+    notifyGameplayState(transition.state);
+  }
+
+  return transition;
+}
+
 export function updateGameplayState(
   state: GameplayState,
   action: GameplayAction
@@ -101,10 +154,24 @@ export function updateGameplayState(
       break;
     }
 
+    case 'COLLECT_SAMPLE': {
+      const transition = collectSample(state, {
+        sourceId: action.sourceId,
+        sampleType: action.sampleType,
+      });
+
+      if (transition.state === state) return state;
+
+      nextState = transition.state;
+      break;
+    }
+
     case 'ANALYZE_SAMPLE': {
-      const ids = addUniqueId(state.analyzedSampleIds, action.id);
-      if (ids === state.analyzedSampleIds) return state;
-      nextState = { ...state, analyzedSampleIds: ids };
+      const transition = analyzeSample(state, action.sampleId);
+
+      if (transition.state === state) return state;
+
+      nextState = transition.state;
       break;
     }
 
