@@ -6,9 +6,14 @@ import {
   resetGameplayState,
   updateGameplayState,
   applyCollectSample,
+  applyAnalyzeSample,
 } from '../state/GameplayState';
 import {
+  CHEMISTRY_BRIDGE_CLEARED_EVENT,
+  CHEMISTRY_BRIDGE_READY_EVENT,
+  CHEMISTRY_BRIDGE_REGISTRY_KEY,
   CHEMISTRY_ERROR_MESSAGES,
+  type ChemistryBridge,
 } from '../chemistry/ChemistrySystem';
 
 type WorldInteractable = {
@@ -109,6 +114,54 @@ export default class BootScene extends Phaser.Scene {
     this.createTouchControls();
     this.createInteractionControls();
     this.createSceneResetTestControl();
+    this.installChemistryBridge();
+  }
+
+  private installChemistryBridge() {
+    const bridge: ChemistryBridge = {
+      analyzeSample: (sampleId) => {
+        const transition = applyAnalyzeSample(
+          this.gameplayState,
+          sampleId
+        );
+
+        if (!transition.result.ok) {
+          return transition.result;
+        }
+
+        this.gameplayState = transition.state;
+        return transition.result;
+      },
+    };
+
+    this.game.registry.set(
+      CHEMISTRY_BRIDGE_REGISTRY_KEY,
+      bridge
+    );
+
+    this.game.events.emit(
+      CHEMISTRY_BRIDGE_READY_EVENT,
+      bridge
+    );
+
+    this.events.once(
+      Phaser.Scenes.Events.SHUTDOWN,
+      () => {
+        const currentBridge = this.game.registry.get(
+          CHEMISTRY_BRIDGE_REGISTRY_KEY
+        ) as ChemistryBridge | undefined;
+
+        if (currentBridge === bridge) {
+          this.game.registry.remove(
+            CHEMISTRY_BRIDGE_REGISTRY_KEY
+          );
+        }
+
+        this.game.events.emit(
+          CHEMISTRY_BRIDGE_CLEARED_EVENT
+        );
+      }
+    );
   }
 
   private createTouchControls() {
@@ -807,58 +860,4 @@ export default class BootScene extends Phaser.Scene {
         this.gameplayState,
         {
           type: 'COLLECT_RESOURCE',
-          id: `crystal-${target.x}-${target.y}`,
-        }
-      );
-
-      this.elementCounter.setText(
-        `ELEMENTS: ${this.collectedCrystalCount}/3`
-      );
-
-      this.showInteractionFeedback(
-        'CRYSTAL COLLECTED'
-      );
-    } else {
-      const transition = applyCollectSample(
-        this.gameplayState,
-        {
-          sourceId: `outcrop-${target.x}-${target.y}`,
-          sampleType: 'unidentified-mineral',
-        }
-      );
-
-      if (!transition.result.ok) {
-        this.showInteractionFeedback(
-          CHEMISTRY_ERROR_MESSAGES[transition.result.error]
-        );
-        return;
-      }
-
-      this.gameplayState = transition.state;
-      target.used = true;
-
-      this.showInteractionFeedback(
-        'MINERAL SAMPLE COLLECTED'
-      );
-    }
-
-    this.interactionTarget = null;
-    this.interactionPrompt.setVisible(false);
-    this.interactionButton.setVisible(false);
-    this.interactionButtonText.setVisible(false);
-  }
-
-  update(_time: number, delta: number) {
-    if (!this.player) return;
-
-    const speed = 0.18 * delta;
-
-    let dx = 0;
-    let dy = 0;
-
-    if (this.cursors && this.wasd) {
-      if (this.cursors.left.isDown || this.wasd.left.isDown) {
-        dx -= 1;
-      }
-
-      if (this.cursor
+          id: `crystal-${target.x}-${target
