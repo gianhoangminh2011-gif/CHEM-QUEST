@@ -16,6 +16,13 @@ const phaserMock = vi.hoisted(() => ({
     config: any;
     destroyCalls: number;
     destroyRemoveCanvas?: boolean;
+    events: {
+      on: ReturnType<typeof vi.fn>;
+      off: ReturnType<typeof vi.fn>;
+    };
+    registry: {
+      get: ReturnType<typeof vi.fn>;
+    };
   }>,
 }));
 
@@ -24,6 +31,15 @@ vi.mock('phaser', () => {
     config: any;
     destroyCalls = 0;
     destroyRemoveCanvas?: boolean;
+
+    events = {
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+
+    registry = {
+      get: vi.fn(() => undefined),
+    };
 
     constructor(config: any) {
       this.config = config;
@@ -91,6 +107,9 @@ describe('PhaserGame React integration', () => {
       host.querySelector('.phaser-game')
     );
 
+    expect(game.events.on).toHaveBeenCalledTimes(2);
+    expect(game.registry.get).toHaveBeenCalledTimes(1);
+
     let state = createGameplayState();
 
     state = updateGameplayState(state, {
@@ -105,6 +124,7 @@ describe('PhaserGame React integration', () => {
       root.unmount();
     });
 
+    expect(game.events.off).toHaveBeenCalledTimes(2);
     expect(game.destroyCalls).toBe(1);
     expect(game.destroyRemoveCanvas).toBe(true);
     expect(onChemistryBridgeChange).toHaveBeenLastCalledWith(null);
