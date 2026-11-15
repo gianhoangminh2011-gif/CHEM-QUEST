@@ -144,60 +144,19 @@ Workflow job #132914666444 and its execution logs.
 
 
 4. Audit Results
+| ID | Audit Criterion | Result |
+|---|---|---|
+| A-01 | Repository stores and retrieves opaque question payloads by ID. | PASS |
+| A-02 | Blank and whitespace-only IDs are rejected. | PASS |
+| A-03 | Duplicate IDs are rejected without replacing the original record. | PASS |
+| A-04 | Question ID strings are preserved exactly. | PASS — documented behavior |
+| A-05 | Repository list preserves insertion order. | PASS |
+| A-06 | Practice Session rejects invalid configuration. | PASS |
+| A-07 | Adapter rejects missing Question IDs. | PASS |
+| A-08 | Practice Session preserves configured question order. | PASS |
+| A-09 | Implementation remains within approved scope. | PASS |
 
 
-
-
-ID
-Audit Criterion
-Result
-
-
-
-
-A-01
-Repository stores and retrieves opaque question payloads by ID.
-PASS
-
-
-A-02
-Blank and whitespace-only IDs are rejected.
-PASS
-
-
-A-03
-Duplicate IDs are rejected without replacing the original record.
-PASS
-
-
-A-04
-Question ID strings are preserved exactly.
-PASS — documented behavior
-
-
-A-05
-Repository list preserves insertion order.
-PASS
-
-
-A-06
-Practice Session rejects invalid configuration.
-PASS
-
-
-A-07
-Adapter rejects missing Question IDs.
-PASS
-
-
-A-08
-Practice Session preserves configured question order.
-PASS
-
-
-A-09
-Implementation remains within approved scope.
-PASS
 
 
 
@@ -242,33 +201,12 @@ Results
 
 
 
-Check
-Result
-
-
-
-
-Test files
-8 passed
-
-
-Tests
-57 passed
-
-
-Production build
-PASS
-
-
-TypeScript build (tsc -b)
-PASS
-
-
-
-
-CI run:
-
-https://github.com/gianhoangminh2011-gif/CHEM-QUEST/actions/runs/43747744161
+| Check | Result |
+|---|---|
+| Test files | 8 passed |
+| Tests | 57 passed |
+| Production build | PASS |
+| TypeScript build (`tsc -b`) | PASS |
 
 
 6. Observations
