@@ -1,10 +1,15 @@
+
 import Phaser from 'phaser';
 import Player from '../entities/Player';
 import {
   createGameplayState,
   resetGameplayState,
   updateGameplayState,
+  applyCollectSample,
 } from '../state/GameplayState';
+import {
+  CHEMISTRY_ERROR_MESSAGES,
+} from '../chemistry/ChemistrySystem';
 
 type WorldInteractable = {
   kind: 'crystal' | 'outcrop';
@@ -43,7 +48,6 @@ export default class BootScene extends Phaser.Scene {
   private interactionFeedback!: Phaser.GameObjects.Text;
 
   private collectedCrystalCount = 0;
-  private analyzedOutcropCount = 0;
   private gameplayState = createGameplayState();
 
   private readonly obstacles: Array<{
@@ -73,7 +77,6 @@ export default class BootScene extends Phaser.Scene {
     this.obstacles.length = 0;
     this.interactables.length = 0;
     this.collectedCrystalCount = 0;
-    this.analyzedOutcropCount = 0;
     this.gameplayState = resetGameplayState();
     this.interactionTarget = null;
 
@@ -816,19 +819,26 @@ export default class BootScene extends Phaser.Scene {
         'CRYSTAL COLLECTED'
       );
     } else {
-      target.used = true;
-      this.analyzedOutcropCount++;
-
-      this.gameplayState = updateGameplayState(
+      const transition = applyCollectSample(
         this.gameplayState,
         {
-          type: 'ANALYZE_SAMPLE',
-          id: `outcrop-${target.x}-${target.y}`,
+          sourceId: `outcrop-${target.x}-${target.y}`,
+          sampleType: 'unidentified-mineral',
         }
       );
 
+      if (!transition.result.ok) {
+        this.showInteractionFeedback(
+          CHEMISTRY_ERROR_MESSAGES[transition.result.error]
+        );
+        return;
+      }
+
+      this.gameplayState = transition.state;
+      target.used = true;
+
       this.showInteractionFeedback(
-        'MINERAL SAMPLE ANALYZED'
+        'MINERAL SAMPLE COLLECTED'
       );
     }
 
@@ -851,71 +861,4 @@ export default class BootScene extends Phaser.Scene {
         dx -= 1;
       }
 
-      if (this.cursors.right.isDown || this.wasd.right.isDown) {
-        dx += 1;
-      }
-
-      if (this.cursors.up.isDown || this.wasd.up.isDown) {
-        dy -= 1;
-      }
-
-      if (this.cursors.down.isDown || this.wasd.down.isDown) {
-        dy += 1;
-      }
-    }
-
-    const joyX = this.joystickVector.x;
-    const joyY = this.joystickVector.y;
-
-    dx += (joyX + 2 * joyY) * 0.5;
-    dy += (2 * joyY - joyX) * 0.5;
-
-    const inputLength = Math.sqrt(dx * dx + dy * dy);
-
-    if (inputLength > 1) {
-      dx /= inputLength;
-      dy /= inputLength;
-    }
-
-    const isoX = (dx - dy) * speed;
-    const isoY = (dx + dy) * speed * 0.5;
-
-    const currentX = this.player.x;
-    const currentY = this.player.y;
-
-    const nextX = currentX + isoX;
-    const nextY = currentY + isoY;
-
-    if (
-      this.isInsideWorld(nextX, nextY) &&
-      !this.collidesWithObstacle(nextX, nextY)
-    ) {
-      this.player.setPosition(nextX, nextY);
-    } else {
-      if (
-        this.isInsideWorld(nextX, currentY) &&
-        !this.collidesWithObstacle(nextX, currentY)
-      ) {
-        this.player.x = nextX;
-      }
-
-      if (
-        this.isInsideWorld(this.player.x, nextY) &&
-        !this.collidesWithObstacle(this.player.x, nextY)
-      ) {
-        this.player.y = nextY;
-      }
-    }
-
-    this.player.setDepth(this.player.y);
-
-    this.updateInteractionTarget();
-
-    if (
-      this.interactKey &&
-      Phaser.Input.Keyboard.JustDown(this.interactKey)
-    ) {
-      this.interactNearbyObject();
-    }
-  }
-}
+      if (this.cursor
