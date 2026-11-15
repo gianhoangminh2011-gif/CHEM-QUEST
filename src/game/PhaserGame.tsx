@@ -1,3 +1,4 @@
+
 import { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
 import BootScene from './scenes/BootScene';
@@ -5,13 +6,23 @@ import {
   subscribeGameplayState,
   type GameplayState,
 } from './state/GameplayState';
+import {
+  CHEMISTRY_BRIDGE_CLEARED_EVENT,
+  CHEMISTRY_BRIDGE_READY_EVENT,
+  CHEMISTRY_BRIDGE_REGISTRY_KEY,
+  type ChemistryBridge,
+} from './chemistry/ChemistrySystem';
 
 interface PhaserGameProps {
   onGameplayStateChange: (state: GameplayState) => void;
+  onChemistryBridgeChange: (
+    bridge: ChemistryBridge | null
+  ) => void;
 }
 
 function PhaserGame({
   onGameplayStateChange,
+  onChemistryBridgeChange,
 }: PhaserGameProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -42,11 +53,55 @@ function PhaserGame({
       },
     });
 
+    const handleBridgeReady = (
+      bridge?: ChemistryBridge
+    ) => {
+      if (bridge) {
+        onChemistryBridgeChange(bridge);
+      }
+    };
+
+    const handleBridgeCleared = () => {
+      onChemistryBridgeChange(null);
+    };
+
+    game.events.on(
+      CHEMISTRY_BRIDGE_READY_EVENT,
+      handleBridgeReady
+    );
+
+    game.events.on(
+      CHEMISTRY_BRIDGE_CLEARED_EVENT,
+      handleBridgeCleared
+    );
+
+    const existingBridge = game.registry.get(
+      CHEMISTRY_BRIDGE_REGISTRY_KEY
+    ) as ChemistryBridge | undefined;
+
+    if (existingBridge) {
+      handleBridgeReady(existingBridge);
+    }
+
     return () => {
+      game.events.off(
+        CHEMISTRY_BRIDGE_READY_EVENT,
+        handleBridgeReady
+      );
+
+      game.events.off(
+        CHEMISTRY_BRIDGE_CLEARED_EVENT,
+        handleBridgeCleared
+      );
+
       unsubscribe();
+      onChemistryBridgeChange(null);
       game.destroy(true);
     };
-  }, [onGameplayStateChange]);
+  }, [
+    onGameplayStateChange,
+    onChemistryBridgeChange,
+  ]);
 
   return <div ref={containerRef} className="phaser-game" />;
 }
