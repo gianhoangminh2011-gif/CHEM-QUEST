@@ -96,7 +96,11 @@ describe('ChemistrySystem', () => {
     });
 
     expect(second.result.ok).toBe(true);
-    expect(second.result.duplicate).toBe(true);
+
+    if (second.result.ok) {
+      expect(second.result.duplicate).toBe(true);
+    }
+
     expect(second.state).toBe(first.state);
   });
 
@@ -209,7 +213,11 @@ describe('ChemistrySystem', () => {
     );
 
     expect(second.result.ok).toBe(true);
-    expect(second.result.duplicate).toBe(true);
+
+    if (second.result.ok) {
+      expect(second.result.duplicate).toBe(true);
+    }
+
     expect(second.state).toBe(first.state);
   });
 
@@ -229,12 +237,14 @@ describe('ChemistrySystem', () => {
 
     expect(countValidAnalysisResults(collected.state)).toBe(0);
     expect(countValidAnalysisResults(analyzed.state)).toBe(1);
+
     expect(
       isAnalysed(
         analyzed.state,
         'sample:outcrop-350-315'
       )
     ).toBe(true);
+
     expect(
       isAnalysed(
         analyzed.state,
