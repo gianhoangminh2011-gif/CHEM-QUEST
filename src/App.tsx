@@ -1,6 +1,7 @@
 
 import { useCallback, useState } from 'react';
 import PhaserGame from './game/PhaserGame';
+import LabPanel from './game/LabPanel';
 import {
   createGameplayState,
   type GameplayState,
@@ -10,13 +11,22 @@ import {
   getQuestProgress,
 } from './game/quests/QuestSystem';
 import { getElementRecordsForResources } from './game/elements/ElementCatalog';
+import {
+  countValidAnalysisResults,
+  isAnalysed,
+  type AnalysisResult,
+  type ChemistryBridge,
+  type ResearchSample,
+} from './game/chemistry/ChemistrySystem';
 
-type Panel = 'quest' | 'codex' | 'bag';
+type Panel = 'quest' | 'codex' | 'bag' | 'lab';
 
 function App() {
   const [activePanel, setActivePanel] = useState<Panel>('quest');
   const [gameplayState, setGameplayState] =
     useState<GameplayState>(createGameplayState);
+  const [chemistryBridge, setChemistryBridge] =
+    useState<ChemistryBridge | null>(null);
 
   const handleGameplayStateChange = useCallback(
     (nextState: GameplayState) => {
@@ -25,8 +35,27 @@ function App() {
     []
   );
 
+  const handleChemistryBridgeChange = useCallback(
+    (bridge: ChemistryBridge | null) => {
+      setChemistryBridge(bridge);
+    },
+    []
+  );
+
   const crystalCount = gameplayState.collectedResourceIds.length;
-  const sampleCount = gameplayState.analyzedSampleIds.length;
+  const sampleCount = countValidAnalysisResults(gameplayState);
+
+  const researchSamples: ResearchSample[] = Object.values(
+    gameplayState.researchSamplesById
+  );
+
+  const analysisResults: AnalysisResult[] = Object.values(
+    gameplayState.analysisResultsBySampleId
+  );
+
+  const analysedSampleIds = researchSamples
+    .filter((sample) => isAnalysed(gameplayState, sample.id))
+    .map((sample) => sample.id);
 
   const questProgress = getQuestProgress(
     FIRST_DISCOVERY_QUEST,
@@ -45,7 +74,10 @@ function App() {
 
   const progressPercentage =
     totalQuestObjectives > 0
-      ? Math.min((totalQuestProgress / totalQuestObjectives) * 100, 100)
+      ? Math.min(
+          (totalQuestProgress / totalQuestObjectives) * 100,
+          100
+        )
       : 0;
 
   const elementRecords = getElementRecordsForResources(
@@ -110,6 +142,13 @@ function App() {
             <span>▣</span> Inventory
           </button>
 
+          <button
+            className={activePanel === 'lab' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setActivePanel('lab')}
+          >
+            <span>⚗</span> Research Lab
+          </button>
+
           <div className="side-divider" />
 
           <div className="progress-card">
@@ -151,6 +190,7 @@ function App() {
           <section className="game-container">
             <PhaserGame
               onGameplayStateChange={handleGameplayStateChange}
+              onChemistryBridgeChange={handleChemistryBridgeChange}
             />
           </section>
 
@@ -166,7 +206,9 @@ function App() {
               ? 'CURRENT QUEST'
               : activePanel === 'codex'
                 ? 'ELEMENT CODEX'
-                : 'INVENTORY'}
+                : activePanel === 'bag'
+                  ? 'INVENTORY'
+                  : 'RESEARCH LAB'}
           </p>
 
           {activePanel === 'quest' && (
@@ -255,12 +297,16 @@ function App() {
                     : `${crystalCount} crystal resource(s) collected.`}
                 </p>
               </div>
-
-              <div className="quest-objective">
-                <span>ANALYZED SAMPLES</span>
-                <p>{sampleCount} mineral sample(s) analyzed.</p>
-              </div>
             </>
+          )}
+
+          {activePanel === 'lab' && (
+            <LabPanel
+              bridge={chemistryBridge}
+              researchSamples={researchSamples}
+              analysisResults={analysisResults}
+              analysedSampleIds={analysedSampleIds}
+            />
           )}
         </aside>
       </section>
