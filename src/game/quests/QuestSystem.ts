@@ -1,4 +1,6 @@
+
 import type { GameplayState } from '../state/GameplayState';
+import { countValidAnalysisResults } from '../chemistry/ChemistrySystem';
 
 export type QuestObjectiveType =
   | 'COLLECT_RESOURCE'
@@ -62,7 +64,7 @@ function getObjectiveCount(
       return state.collectedResourceIds.length;
 
     case 'ANALYZE_SAMPLE':
-      return state.analyzedSampleIds.length;
+      return countValidAnalysisResults(state);
 
     default:
       return 0;
