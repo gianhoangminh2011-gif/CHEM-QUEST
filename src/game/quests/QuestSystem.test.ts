@@ -7,6 +7,8 @@ import {
 import {
   createGameplayState,
   updateGameplayState,
+  applyCollectSample,
+  applyAnalyzeSample,
 } from '../state/GameplayState';
 
 describe('QuestSystem', () => {
@@ -29,16 +31,36 @@ describe('QuestSystem', () => {
       id: 'crystal-1',
     });
 
-    state = updateGameplayState(state, {
-      type: 'ANALYZE_SAMPLE',
-      id: 'sample-1',
+    const collected = applyCollectSample(state, {
+      sourceId: 'outcrop-350-315',
+      sampleType: 'unidentified-mineral',
     });
 
-    const progress = getQuestProgress(FIRST_DISCOVERY_QUEST, state);
+    state = collected.state;
 
-    expect(progress.objectives[0].currentCount).toBe(1);
-    expect(progress.objectives[1].currentCount).toBe(1);
-    expect(progress.completed).toBe(false);
+    const beforeAnalysis = getQuestProgress(
+      FIRST_DISCOVERY_QUEST,
+      state
+    );
+
+    expect(beforeAnalysis.objectives[0].currentCount).toBe(1);
+    expect(beforeAnalysis.objectives[1].currentCount).toBe(0);
+
+    const analyzed = applyAnalyzeSample(
+      state,
+      'sample:outcrop-350-315'
+    );
+
+    state = analyzed.state;
+
+    const afterAnalysis = getQuestProgress(
+      FIRST_DISCOVERY_QUEST,
+      state
+    );
+
+    expect(afterAnalysis.objectives[0].currentCount).toBe(1);
+    expect(afterAnalysis.objectives[1].currentCount).toBe(1);
+    expect(afterAnalysis.completed).toBe(false);
   });
 
   it('completes when all objectives reach their targets', () => {
@@ -51,12 +73,22 @@ describe('QuestSystem', () => {
       });
     }
 
-    state = updateGameplayState(state, {
-      type: 'ANALYZE_SAMPLE',
-      id: 'sample-1',
+    const collected = applyCollectSample(state, {
+      sourceId: 'outcrop-350-315',
+      sampleType: 'unidentified-mineral',
     });
 
-    expect(getQuestProgress(FIRST_DISCOVERY_QUEST, state).completed)
-      .toBe(true);
+    state = collected.state;
+
+    const analyzed = applyAnalyzeSample(
+      state,
+      'sample:outcrop-350-315'
+    );
+
+    state = analyzed.state;
+
+    expect(
+      getQuestProgress(FIRST_DISCOVERY_QUEST, state).completed
+    ).toBe(true);
   });
 });
