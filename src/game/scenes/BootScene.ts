@@ -860,4 +860,125 @@ export default class BootScene extends Phaser.Scene {
         this.gameplayState,
         {
           type: 'COLLECT_RESOURCE',
-          id: `crystal-${target.x}-${target
+          id: `crystal-${target.x}-${target.y}`,
+        }
+      );
+
+      this.elementCounter.setText(
+        `ELEMENTS: ${this.collectedCrystalCount}/3`
+      );
+
+      this.showInteractionFeedback(
+        'CRYSTAL COLLECTED'
+      );
+    } else {
+      const transition = applyCollectSample(
+        this.gameplayState,
+        {
+          sourceId: `outcrop-${target.x}-${target.y}`,
+          sampleType: 'unidentified-mineral',
+        }
+      );
+
+      if (!transition.result.ok) {
+        this.showInteractionFeedback(
+          CHEMISTRY_ERROR_MESSAGES[transition.result.error]
+        );
+        return;
+      }
+
+      this.gameplayState = transition.state;
+      target.used = true;
+
+      this.showInteractionFeedback(
+        'MINERAL SAMPLE COLLECTED'
+      );
+    }
+
+    this.interactionTarget = null;
+    this.interactionPrompt.setVisible(false);
+    this.interactionButton.setVisible(false);
+    this.interactionButtonText.setVisible(false);
+  }
+
+  update(_time: number, delta: number) {
+    if (!this.player) return;
+
+    const speed = 0.18 * delta;
+
+    let dx = 0;
+    let dy = 0;
+
+    if (this.cursors && this.wasd) {
+      if (this.cursors.left.isDown || this.wasd.left.isDown) {
+        dx -= 1;
+      }
+
+      if (this.cursors.right.isDown || this.wasd.right.isDown) {
+        dx += 1;
+      }
+
+      if (this.cursors.up.isDown || this.wasd.up.isDown) {
+        dy -= 1;
+      }
+
+      if (this.cursors.down.isDown || this.wasd.down.isDown) {
+        dy += 1;
+      }
+    }
+
+    const joyX = this.joystickVector.x;
+    const joyY = this.joystickVector.y;
+
+    dx += (joyX + 2 * joyY) * 0.5;
+    dy += (2 * joyY - joyX) * 0.5;
+
+    const inputLength = Math.sqrt(dx * dx + dy * dy);
+
+    if (inputLength > 1) {
+      dx /= inputLength;
+      dy /= inputLength;
+    }
+
+    const isoX = (dx - dy) * speed;
+    const isoY = (dx + dy) * speed * 0.5;
+
+    const currentX = this.player.x;
+    const currentY = this.player.y;
+
+    const nextX = currentX + isoX;
+    const nextY = currentY + isoY;
+
+    if (
+      this.isInsideWorld(nextX, nextY) &&
+      !this.collidesWithObstacle(nextX, nextY)
+    ) {
+      this.player.setPosition(nextX, nextY);
+    } else {
+      if (
+        this.isInsideWorld(nextX, currentY) &&
+        !this.collidesWithObstacle(nextX, currentY)
+      ) {
+        this.player.x = nextX;
+      }
+
+      if (
+        this.isInsideWorld(this.player.x, nextY) &&
+        !this.collidesWithObstacle(this.player.x, nextY)
+      ) {
+        this.player.y = nextY;
+      }
+    }
+
+    this.player.setDepth(this.player.y);
+
+    this.updateInteractionTarget();
+
+    if (
+      this.interactKey &&
+      Phaser.Input.Keyboard.JustDown(this.interactKey)
+    ) {
+      this.interactNearbyObject();
+    }
+  }
+}
