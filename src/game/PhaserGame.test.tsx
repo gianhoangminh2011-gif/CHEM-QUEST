@@ -65,6 +65,7 @@ describe('PhaserGame React integration', () => {
 
   it('creates Phaser, receives gameplay updates, and cleans up on unmount', async () => {
     const onGameplayStateChange = vi.fn();
+    const onChemistryBridgeChange = vi.fn();
     const host = document.createElement('div');
     document.body.appendChild(host);
 
@@ -74,6 +75,7 @@ describe('PhaserGame React integration', () => {
       root.render(
         createElement(PhaserGame, {
           onGameplayStateChange,
+          onChemistryBridgeChange,
         })
       );
     });
@@ -105,6 +107,7 @@ describe('PhaserGame React integration', () => {
 
     expect(game.destroyCalls).toBe(1);
     expect(game.destroyRemoveCanvas).toBe(true);
+    expect(onChemistryBridgeChange).toHaveBeenLastCalledWith(null);
 
     state = updateGameplayState(state, {
       type: 'COLLECT_RESOURCE',
