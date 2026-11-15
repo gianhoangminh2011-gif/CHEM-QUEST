@@ -78,13 +78,13 @@ GitHub Actions executed:
 - "npm test"
 - "npm run build"
 
-Environment:
+Environment
 
 - Node.js 20.20.2
 - npm 10.8.2
 - Vitest 2.1.9
 
-Results:
+Results
 
 Check| Result
 Test files| 8 passed
