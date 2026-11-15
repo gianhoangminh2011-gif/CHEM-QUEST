@@ -12,7 +12,6 @@ import {
 } from './game/quests/QuestSystem';
 import { getElementRecordsForResources } from './game/elements/ElementCatalog';
 import {
-  countValidAnalysisResults,
   isAnalysed,
   type AnalysisResult,
   type ChemistryBridge,
@@ -43,7 +42,6 @@ function App() {
   );
 
   const crystalCount = gameplayState.collectedResourceIds.length;
-  const sampleCount = countValidAnalysisResults(gameplayState);
 
   const researchSamples: ResearchSample[] = Object.values(
     gameplayState.researchSamplesById
