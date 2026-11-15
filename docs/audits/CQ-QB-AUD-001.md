@@ -300,39 +300,30 @@ Four observations are recorded for follow-up. They are not classified as confirm
 
 This audit does not certify production readiness for the entire Question Bank or CHEM QUEST project.
 
-
 8. Governance Status
-
 
 This document is an audit record only.
 
+PD decision: APPROVED.
 
-It does not automatically:
+Approval date: 16 November 2026.
 
+Approved disposition: PASS WITH OBSERVATIONS.
 
+A-01 through A-09: PASS — accepted.
 
+OBS-01 through OBS-04: Remain OPEN for separate follow-up; observation closure is not approved.
 
-Approve the audit record on behalf of PD.
+Baseline designation: NOT GRANTED by this decision.
 
+Expanded coding authorization: NOT GRANTED by this decision.
 
-Close the observations.
+PR #7: No reopening or modification authorized by this decision.
 
+PR #8: This approval updates the audit record only; it does not authorize merging PR #8.
 
-Designate a new baseline.
+Document status: PD-APPROVED.
 
-
-Authorize implementation beyond the approved scope.
-
-
-Reopen or modify PR #7.
-
-
-
-
-PD decision: PENDING.
-
-
-Document status: DRAFT — NOT PD-APPROVED.
 
 
 9. Source References
