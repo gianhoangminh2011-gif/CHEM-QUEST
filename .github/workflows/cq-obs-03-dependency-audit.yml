@@ -1,0 +1,88 @@
+
+name: CQ-OBS-03 Dependency Audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-audit:
+    name: Reproducible dependency audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate target branch
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "This audit must run from main."
+            exit 1
+          fi
+
+      - name: Checkout exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24.22.3
+
+      - name: Record runtime
+        run: |
+          node --version
+          npm --version
+          git rev-parse HEAD
+          sha256sum package.json
+
+      - name: Generate temporary lockfile
+        run: |
+          mkdir -p "$RUNNER_TEMP/cq-obs-03-evidence"
+          cp package.json "$RUNNER_TEMP/cq-obs-03-evidence/"
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund --lockfile-version=3
+          cp package-lock.json "$RUNNER_TEMP/cq-obs-03-evidence/"
+
+      - name: Run full dependency audit
+        shell: bash
+        run: |
+          set +e
+          npm audit --json > "$RUNNER_TEMP/cq-obs-03-evidence/audit-all.json" 2> "$RUNNER_TEMP/cq-obs-03-evidence/audit-all.stderr"
+          echo "$?" > "$RUNNER_TEMP/cq-obs-03-evidence/audit-all.exit"
+          set -e
+
+      - name: Run production dependency audit
+        shell: bash
+        run: |
+          set +e
+          npm audit --omit=dev --json > "$RUNNER_TEMP/cq-obs-03-evidence/audit-prod.json" 2> "$RUNNER_TEMP/cq-obs-03-evidence/audit-prod.stderr"
+          echo "$?" > "$RUNNER_TEMP/cq-obs-03-evidence/audit-prod.exit"
+          set -e
+
+      - name: Validate audit evidence
+        shell: bash
+        run: |
+          EVIDENCE="$RUNNER_TEMP/cq-obs-03-evidence"
+          node -e "for (const f of ['audit-all.json','audit-prod.json']) { const x = require(process.env.EVIDENCE + '/' + f); if (!x || typeof x !== 'object' || !x.metadata) process.exit(1); }" 
+        env:
+          EVIDENCE: ${{ runner.temp }}/cq-obs-03-evidence
+
+      - name: Verify source tree unchanged
+        run: |
+          git diff --exit-code
+          git status --short
+
+      - name: Create SHA256 manifest
+        run: |
+          cd "$RUNNER_TEMP/cq-obs-03-evidence"
+          sha256sum * > SHA256SUMS.txt
+
+      - name: Upload audit evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: cq-obs-03-dependency-audit-${{ github.sha }}
+          path: ${{ runner.temp }}/cq-obs-03-evidence/
+          retention-days: 30
+          if-no-files-found: error
