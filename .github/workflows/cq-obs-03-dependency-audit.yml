@@ -39,42 +39,52 @@ jobs:
           sha256sum package.json
 
       - name: Generate temporary lockfile
+        shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/cq-obs-03-evidence"
-          cp package.json "$RUNNER_TEMP/cq-obs-03-evidence/"
+          EVIDENCE="$RUNNER_TEMP/cq-obs-03-evidence"
+          mkdir -p "$EVIDENCE"
+          cp package.json "$EVIDENCE/package.json"
+          cd "$EVIDENCE"
           npm install --package-lock-only --ignore-scripts --no-audit --no-fund --lockfile-version=3
-          cp package-lock.json "$RUNNER_TEMP/cq-obs-03-evidence/"
 
       - name: Run full dependency audit
         shell: bash
         run: |
+          cd "$RUNNER_TEMP/cq-obs-03-evidence"
           set +e
-          npm audit --json > "$RUNNER_TEMP/cq-obs-03-evidence/audit-all.json" 2> "$RUNNER_TEMP/cq-obs-03-evidence/audit-all.stderr"
-          echo "$?" > "$RUNNER_TEMP/cq-obs-03-evidence/audit-all.exit"
+          npm audit --json > audit-all.json 2> audit-all.stderr
+          echo "$?" > audit-all.exit
           set -e
 
       - name: Run production dependency audit
         shell: bash
         run: |
+          cd "$RUNNER_TEMP/cq-obs-03-evidence"
           set +e
-          npm audit --omit=dev --json > "$RUNNER_TEMP/cq-obs-03-evidence/audit-prod.json" 2> "$RUNNER_TEMP/cq-obs-03-evidence/audit-prod.stderr"
-          echo "$?" > "$RUNNER_TEMP/cq-obs-03-evidence/audit-prod.exit"
+          npm audit --omit=dev --json > audit-prod.json 2> audit-prod.stderr
+          echo "$?" > audit-prod.exit
           set -e
 
       - name: Validate audit evidence
         shell: bash
         run: |
           EVIDENCE="$RUNNER_TEMP/cq-obs-03-evidence"
-          node -e "for (const f of ['audit-all.json','audit-prod.json']) { const x = require(process.env.EVIDENCE + '/' + f); if (!x || typeof x !== 'object' || !x.metadata) process.exit(1); }" 
+          node -e "for (const f of ['audit-all.json','audit-prod.json']) { const x = require(process.env.EVIDENCE + '/' + f); if (!x || typeof x !== 'object' || !x.metadata) process.exit(1); }"
         env:
           EVIDENCE: ${{ runner.temp }}/cq-obs-03-evidence
 
-      - name: Verify source tree unchanged
+      - name: Verify repository working tree unchanged
+        shell: bash
         run: |
           git diff --exit-code
-          git status --short
+          if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+            echo "Repository working tree is not clean:"
+            git status --short
+            exit 1
+          fi
 
       - name: Create SHA256 manifest
+        shell: bash
         run: |
           cd "$RUNNER_TEMP/cq-obs-03-evidence"
           sha256sum * > SHA256SUMS.txt
