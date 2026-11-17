@@ -16,83 +16,120 @@ jobs:
       - name: Validate target branch
         shell: bash
         run: |
-          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
-            echo "This audit must run from main."
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::This audit must run on main."
             exit 1
           fi
 
       - name: Checkout exact commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ github.sha }}
+        uses: actions/checkout@v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        uses: actions/setup-node@v4
         with:
           node-version: 24.22.3
 
-      - name: Record runtime
-        run: |
-          node --version
-          npm --version
-          git rev-parse HEAD
-          sha256sum package.json
-
-      - name: Generate temporary lockfile
+      - name: Record runtime and source hashes
         shell: bash
         run: |
-          EVIDENCE="$RUNNER_TEMP/cq-obs-03-evidence"
-          mkdir -p "$EVIDENCE"
-          cp package.json "$EVIDENCE/package.json"
-          cd "$EVIDENCE"
-          npm install --package-lock-only --ignore-scripts --no-audit --no-fund --lockfile-version=3
+          mkdir -p "$RUNNER_TEMP/cq-obs-03"
+          node --version > "$RUNNER_TEMP/cq-obs-03/node-version.txt"
+          npm --version > "$RUNNER_TEMP/cq-obs-03/npm-version.txt"
+          git rev-parse HEAD > "$RUNNER_TEMP/cq-obs-03/commit.txt"
+          sha256sum package.json package-lock.json \
+            > "$RUNNER_TEMP/cq-obs-03/source-sha256.txt"
+
+      - name: Preserve committed dependency files
+        shell: bash
+        run: |
+          cp package.json package-lock.json "$RUNNER_TEMP/cq-obs-03/"
+
+      - name: Install exact locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Run full dependency audit
         shell: bash
         run: |
-          cd "$RUNNER_TEMP/cq-obs-03-evidence"
           set +e
-          npm audit --json > audit-all.json 2> audit-all.stderr
-          echo "$?" > audit-all.exit
-          set -e
+          npm audit --json \
+            > "$RUNNER_TEMP/cq-obs-03/audit-all.json" \
+            2> "$RUNNER_TEMP/cq-obs-03/audit-all.stderr"
+          echo "$?" > "$RUNNER_TEMP/cq-obs-03/audit-all.exit"
+          exit 0
 
       - name: Run production dependency audit
         shell: bash
         run: |
-          cd "$RUNNER_TEMP/cq-obs-03-evidence"
           set +e
-          npm audit --omit=dev --json > audit-prod.json 2> audit-prod.stderr
-          echo "$?" > audit-prod.exit
-          set -e
+          npm audit --omit=dev --json \
+            > "$RUNNER_TEMP/cq-obs-03/audit-prod.json" \
+            2> "$RUNNER_TEMP/cq-obs-03/audit-prod.stderr"
+          echo "$?" > "$RUNNER_TEMP/cq-obs-03/audit-prod.exit"
+          exit 0
 
       - name: Validate audit evidence
         shell: bash
         run: |
-          EVIDENCE="$RUNNER_TEMP/cq-obs-03-evidence"
-          node -e "for (const f of ['audit-all.json','audit-prod.json']) { const x = require(process.env.EVIDENCE + '/' + f); if (!x || typeof x !== 'object' || !x.metadata) process.exit(1); }"
-        env:
-          EVIDENCE: ${{ runner.temp }}/cq-obs-03-evidence
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const dir = process.env.RUNNER_TEMP + '/cq-obs-03';
 
-      - name: Verify repository working tree unchanged
-        shell: bash
+          for (const name of ['all', 'prod']) {
+            const exitCode = Number(
+              fs.readFileSync(path.join(dir, `audit-${name}.exit`), 'utf8').trim()
+            );
+
+            if (exitCode !== 0) {
+              throw new Error(`${name} audit failed with exit code ${exitCode}`);
+            }
+
+            const report = JSON.parse(
+              fs.readFileSync(path.join(dir, `audit-${name}.json`), 'utf8')
+            );
+
+            if (!report.metadata || !report.metadata.vulnerabilities) {
+              throw new Error(`${name} audit report is missing vulnerability metadata`);
+            }
+
+            const counts = report.metadata.vulnerabilities;
+            const total = ['info', 'low', 'moderate', 'high', 'critical']
+              .reduce((sum, key) => sum + Number(counts[key] || 0), 0);
+
+            if (total !== 0) {
+              throw new Error(`${name} audit found ${total} vulnerabilities`);
+            }
+          }
+          NODE
+
+      - name: Verify repository unchanged
         run: |
-          git diff --exit-code
-          if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
-            echo "Repository working tree is not clean:"
-            git status --short
-            exit 1
-          fi
+          git diff --exit-code -- package.json package-lock.json
+          test -z "$(git status --porcelain)"
 
       - name: Create SHA256 manifest
         shell: bash
         run: |
-          cd "$RUNNER_TEMP/cq-obs-03-evidence"
-          sha256sum * > SHA256SUMS.txt
+          cd "$RUNNER_TEMP/cq-obs-03"
+          sha256sum \
+            package.json \
+            package-lock.json \
+            node-version.txt \
+            npm-version.txt \
+            commit.txt \
+            source-sha256.txt \
+            audit-all.json \
+            audit-all.exit \
+            audit-all.stderr \
+            audit-prod.json \
+            audit-prod.exit \
+            audit-prod.stderr \
+            > SHA256SUMS
 
       - name: Upload audit evidence
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        uses: actions/upload-artifact@v4
         with:
           name: cq-obs-03-dependency-audit-${{ github.sha }}
-          path: ${{ runner.temp }}/cq-obs-03-evidence/
-          retention-days: 30
+          path: ${{ runner.temp }}/cq-obs-03/
           if-no-files-found: error
+          retention-days: 30
