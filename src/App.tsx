@@ -1,11 +1,14 @@
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import PhaserGame from './game/PhaserGame';
 import LabPanel from './game/LabPanel';
 import {
   createGameplayState,
   type GameplayState,
 } from './game/state/GameplayState';
+import {
+  saveGameplayState,
+} from './game/state/GameplaySaveService';
 import {
   FIRST_DISCOVERY_QUEST,
   getQuestProgress,
@@ -22,14 +25,20 @@ type Panel = 'quest' | 'codex' | 'bag' | 'lab';
 
 function App() {
   const [activePanel, setActivePanel] = useState<Panel>('quest');
+
   const [gameplayState, setGameplayState] =
     useState<GameplayState>(createGameplayState);
+
+  const [hasReceivedGameplayState, setHasReceivedGameplayState] =
+    useState(false);
+
   const [chemistryBridge, setChemistryBridge] =
     useState<ChemistryBridge | null>(null);
 
   const handleGameplayStateChange = useCallback(
     (nextState: GameplayState) => {
       setGameplayState(nextState);
+      setHasReceivedGameplayState(true);
     },
     []
   );
@@ -40,6 +49,12 @@ function App() {
     },
     []
   );
+
+  useEffect(() => {
+    if (!hasReceivedGameplayState) return;
+
+    saveGameplayState(gameplayState);
+  }, [gameplayState, hasReceivedGameplayState]);
 
   const crystalCount = gameplayState.collectedResourceIds.length;
 
