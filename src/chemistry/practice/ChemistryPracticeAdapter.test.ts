@@ -1,3 +1,4 @@
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -17,10 +18,7 @@ describe("ChemistryPracticeAdapter", () => {
     })!;
 
     const result = submitChemistryAnswer(
-      session,
-      "Q-001",
-      "A",
-      "A"
+      session, "Q-001", "A", "A"
     );
 
     expect(result.status).toBe("accepted");
@@ -36,10 +34,7 @@ describe("ChemistryPracticeAdapter", () => {
     })!;
 
     const result = submitChemistryAnswer(
-      session,
-      "Q-001",
-      "B",
-      "A"
+      session, "Q-001", "B", "A"
     );
 
     expect(result.status).toBe("accepted");
@@ -54,34 +49,25 @@ describe("ChemistryPracticeAdapter", () => {
     })!;
 
     const result = submitChemistryAnswer(
-      session,
-      "Q-001",
-      null,
-      "A"
+      session, "Q-001", null, "A"
     );
 
     expect(result.status).toBe("accepted");
     expect(result.feedback?.status).toBe("unanswered");
   });
 
-  it("rejects duplicate submissions without producing feedback", () => {
+  it("rejects duplicate submissions without feedback", () => {
     const session = createPracticeSession({
       sessionId: "S-004",
       questionIds: ["Q-001", "Q-002"],
     })!;
 
     const first = submitChemistryAnswer(
-      session,
-      "Q-001",
-      "A",
-      "A"
+      session, "Q-001", "A", "A"
     );
 
     const second = submitChemistryAnswer(
-      first.session,
-      "Q-001",
-      "B",
-      "A"
+      first.session, "Q-001", "B", "A"
     );
 
     expect(first.status).toBe("accepted");
@@ -97,24 +83,15 @@ describe("ChemistryPracticeAdapter", () => {
     })!;
 
     const first = submitChemistryAnswer(
-      session,
-      "Q-001",
-      "A",
-      "A"
+      session, "Q-001", "A", "A"
     );
 
     const second = submitChemistryAnswer(
-      first.session,
-      "Q-002",
-      "B",
-      "A"
+      first.session, "Q-002", "B", "A"
     );
 
     const third = submitChemistryAnswer(
-      second.session,
-      "Q-003",
-      null,
-      "C"
+      second.session, "Q-003", null, "C"
     );
 
     expect(third.session.status).toBe("completed");
@@ -133,7 +110,7 @@ describe("ChemistryPracticeAdapter", () => {
     });
   });
 
-  it("rejects a summary with missing correct answers", () => {
+  it("rejects summaries with missing correct answers", () => {
     const session = createPracticeSession({
       sessionId: "S-006",
       questionIds: ["Q-001"],
@@ -142,5 +119,31 @@ describe("ChemistryPracticeAdapter", () => {
     expect(() =>
       getChemistrySessionSummary(session, {})
     ).toThrow("Missing correct answer for Q-001.");
+  });
+
+  it("rejects an empty correct answer", () => {
+    const session = createPracticeSession({
+      sessionId: "S-007",
+      questionIds: ["Q-001"],
+    })!;
+
+    expect(() =>
+      submitChemistryAnswer(session, "Q-001", "A", " ")
+    ).toThrow("A valid correct answer is required.");
+  });
+
+  it("rejects an empty correct answer before changing the session", () => {
+    const session = createPracticeSession({
+      sessionId: "S-008",
+      questionIds: ["Q-001"],
+    })!;
+
+    expect(() =>
+      submitChemistryAnswer(session, "Q-001", "A", "")
+    ).toThrow();
+
+    expect(session.currentQuestionIndex).toBe(0);
+    expect(session.status).toBe("active");
+    expect(session.submissions["Q-001"]).toBeUndefined();
   });
 });
