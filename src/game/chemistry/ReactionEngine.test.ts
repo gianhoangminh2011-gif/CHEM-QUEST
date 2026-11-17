@@ -195,4 +195,37 @@ describe("ReactionEngine", () => {
       expect(Object.isFrozen(result.inventory)).toBe(true);
     }
   });
+
+  it("rejects prototype-related resource IDs", () => {
+    for (const resourceId of [
+      "__proto__",
+      "constructor",
+      "prototype",
+      "toString",
+      "hasOwnProperty",
+    ]) {
+      const reaction: ReactionDefinition = {
+        id: "reserved-id-test",
+        inputs: [{ resourceId, quantity: 1 }],
+        outputs: [{ resourceId: "hydrogen", quantity: 1 }],
+      };
+
+      expect(applyReaction(reaction, {})).toMatchObject({
+        success: false,
+        error: "INVALID_REACTION",
+      });
+    }
+  });
+
+  it("rejects prototype-related inventory keys", () => {
+    const inventory: Record<string, number> = Object.defineProperty({}, "constructor", {
+      value: 1,
+      enumerable: true,
+    });
+
+    expect(applyReaction(validReaction, inventory)).toMatchObject({
+      success: false,
+      error: "INVALID_INVENTORY",
+    });
+  });
 });
