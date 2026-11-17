@@ -25,6 +25,16 @@ function isStringArray(value: unknown): value is string[] {
   );
 }
 
+function isValidSourceId(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length >= 1 &&
+    value.length <= 64 &&
+    value.trim() === value &&
+    /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)
+  );
+}
+
 function isResearchSample(
   value: unknown,
   key: string
@@ -32,11 +42,11 @@ function isResearchSample(
   if (!isRecord(value)) return false;
 
   return (
+    isValidSourceId(value.sourceId) &&
     value.id === key &&
-    typeof value.sourceId === 'string' &&
     value.id === `sample:${value.sourceId}` &&
     value.sampleType === 'unidentified-mineral' &&
-    typeof value.displayName === 'string'
+    value.displayName === 'Unidentified Mineral Sample'
   );
 }
 
