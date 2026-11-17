@@ -118,7 +118,40 @@ describe("ChemistryPracticeAdapter", () => {
 
     expect(() =>
       getChemistrySessionSummary(session, {})
-    ).toThrow("Missing correct answer for Q-001.");
+    ).toThrow(
+      "A valid correct answer is required for Q-001."
+    );
+  });
+
+  it("rejects summaries with empty correct answers", () => {
+    const session = createPracticeSession({
+      sessionId: "S-009",
+      questionIds: ["Q-001"],
+    })!;
+
+    expect(() =>
+      getChemistrySessionSummary(session, {
+        "Q-001": " ",
+      })
+    ).toThrow(
+      "A valid correct answer is required for Q-001."
+    );
+  });
+
+  it("rejects summaries with non-string correct answers", () => {
+    const session = createPracticeSession({
+      sessionId: "S-010",
+      questionIds: ["Q-001"],
+    })!;
+
+    expect(() =>
+      getChemistrySessionSummary(
+        session,
+        { "Q-001": 123 } as unknown as Record<string, string>
+      )
+    ).toThrow(
+      "A valid correct answer is required for Q-001."
+    );
   });
 
   it("rejects an empty correct answer", () => {
