@@ -30,7 +30,7 @@ export type ReactionResult =
       message: string;
     };
 
-// Keep empty until verified production reaction data is approved.
+// No production reactions until verified data is approved.
 export const REACTION_REGISTRY: readonly ReactionDefinition[] =
   Object.freeze([]);
 
@@ -160,7 +160,6 @@ export function applyReaction(
     ...inventory,
   };
 
-  // Consume input resources.
   for (const input of reaction.inputs) {
     const remaining =
       (nextInventory[input.resourceId] ?? 0) -
@@ -173,7 +172,6 @@ export function applyReaction(
     }
   }
 
-  // Add output resources.
   for (const output of reaction.outputs) {
     const current = nextInventory[output.resourceId] ?? 0;
     const next = current + output.quantity;
