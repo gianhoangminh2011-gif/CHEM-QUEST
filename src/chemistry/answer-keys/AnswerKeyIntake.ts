@@ -73,11 +73,24 @@ function required(
   }
 }
 
-function validTimestamp(value: string, field: string): void {
+function validTimestamp(value: string, field: string): number {
   required(value, field);
 
-  if (Number.isNaN(Date.parse(value))) {
+  const timestamp = Date.parse(value);
+
+  if (!Number.isFinite(timestamp)) {
     throw new Error(`${field} must be a valid timestamp.`);
+  }
+
+  return timestamp;
+}
+
+function validateDecisionRef(
+  decisionRef: string | null,
+  field: string
+): void {
+  if (decisionRef !== null) {
+    required(decisionRef, field);
   }
 }
 
@@ -118,7 +131,11 @@ export function createAnswerKeyIntake(
   );
   required(input.correctChoiceId, "Correct choice ID");
   required(input.submittedBy, "Submitter");
-  validTimestamp(input.submittedAt, "Submission timestamp");
+
+  const submittedAtMs = validTimestamp(
+    input.submittedAt,
+    "Submission timestamp"
+  );
 
   if (!Number.isInteger(input.version) || input.version <= 0) {
     throw new Error("Answer-key version must be a positive integer.");
@@ -131,6 +148,14 @@ export function createAnswerKeyIntake(
   const sourceIds = new Set<string>();
 
   for (const source of input.sources) {
+    if (
+      source === null ||
+      typeof source !== "object" ||
+      Array.isArray(source)
+    ) {
+      throw new Error("Each source reference must be an object.");
+    }
+
     required(source.sourceId, "Source ID");
     required(source.sourceType, "Source type");
     required(source.locator, "Source locator");
@@ -138,10 +163,17 @@ export function createAnswerKeyIntake(
       source.contentFingerprint,
       "Source content fingerprint"
     );
-    validTimestamp(
+
+    const capturedAtMs = validTimestamp(
       source.capturedAt,
       "Source capture timestamp"
     );
+
+    if (capturedAtMs > submittedAtMs) {
+      throw new Error(
+        "Source capture timestamp cannot be later than submission."
+      );
+    }
 
     const normalizedId = source.sourceId.trim();
 
@@ -241,7 +273,17 @@ export function verifyAnswerKey(
   }
 
   required(reviewerId, "Reviewer");
-  validTimestamp(verifiedAt, "Verification timestamp");
+
+  const verifiedAtMs = validTimestamp(
+    verifiedAt,
+    "Verification timestamp"
+  );
+
+  if (verifiedAtMs < Date.parse(record.submittedAt)) {
+    throw new Error(
+      "Verification timestamp cannot be earlier than the preceding event."
+    );
+  }
 
   if (reviewerId.trim() === record.submittedBy) {
     throw new Error(
@@ -252,6 +294,11 @@ export function verifyAnswerKey(
   if (decision !== "verified" && decision !== "rejected") {
     throw new Error("Invalid verification decision.");
   }
+
+  validateDecisionRef(
+    decisionRef,
+    "Verification decision reference"
+  );
 
   return copyWith(record, {
     verificationStatus: decision,
@@ -287,7 +334,20 @@ export function approveAnswerKey(
   }
 
   required(approverId, "Approver");
-  validTimestamp(approvedAt, "Approval timestamp");
+
+  const approvedAtMs = validTimestamp(
+    approvedAt,
+    "Approval timestamp"
+  );
+
+  if (
+    record.verifiedAt === null ||
+    approvedAtMs < Date.parse(record.verifiedAt)
+  ) {
+    throw new Error(
+      "Approval timestamp cannot be earlier than the preceding event."
+    );
+  }
 
   if (
     approverId.trim() === record.submittedBy ||
@@ -297,6 +357,11 @@ export function approveAnswerKey(
       "Approval must be performed by an independent approver."
     );
   }
+
+  validateDecisionRef(
+    decisionRef,
+    "Approval decision reference"
+  );
 
   return copyWith(record, {
     recordStatus: "complete",
@@ -319,7 +384,20 @@ export function quarantineAnswerKey(
   }
 
   required(reason, "Quarantine reason");
-  validTimestamp(quarantinedAt, "Quarantine timestamp");
+
+  const quarantinedAtMs = validTimestamp(
+    quarantinedAt,
+    "Quarantine timestamp"
+  );
+
+  if (
+    record.approvedAt === null ||
+    quarantinedAtMs < Date.parse(record.approvedAt)
+  ) {
+    throw new Error(
+      "Quarantine timestamp cannot be earlier than the preceding event."
+    );
+  }
 
   return copyWith(record, {
     recordStatus: "quarantined",
@@ -343,7 +421,23 @@ export function revokeAnswerKey(
   }
 
   required(reason, "Revocation reason");
-  validTimestamp(revokedAt, "Revocation timestamp");
+
+  const revokedAtMs = validTimestamp(
+    revokedAt,
+    "Revocation timestamp"
+  );
+
+  const precedingEventAt =
+    record.quarantinedAt ?? record.approvedAt;
+
+  if (
+    precedingEventAt === null ||
+    revokedAtMs < Date.parse(precedingEventAt)
+  ) {
+    throw new Error(
+      "Revocation timestamp cannot be earlier than the preceding event."
+    );
+  }
 
   return copyWith(record, {
     recordStatus: "revoked",
