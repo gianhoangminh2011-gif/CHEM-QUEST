@@ -43,6 +43,10 @@ function isValidId(value: unknown): value is string {
 }
 
 function isValidQuantity(value: unknown): value is number {
+  if (typeof value !== "number") {
+    return false;
+  }
+
   return Number.isSafeInteger(value) && value > 0;
 }
 
@@ -116,8 +120,16 @@ export function applyReaction(
   }
 
   for (const [resourceId, quantity] of Object.entries(inventory)) {
-    if (!isValidId(resourceId) || !Number.isSafeInteger(quantity) || quantity < 0) {
-      return failure("INVALID_INVENTORY", "Inventory contains invalid data.");
+    if (
+      !isValidId(resourceId) ||
+      typeof quantity !== "number" ||
+      !Number.isSafeInteger(quantity) ||
+      quantity < 0
+    ) {
+      return failure(
+        "INVALID_INVENTORY",
+        "Inventory contains invalid data."
+      );
     }
   }
 
@@ -138,7 +150,8 @@ export function applyReaction(
 
   // Consume inputs first.
   for (const input of reaction.inputs) {
-    const remaining = (nextInventory[input.resourceId] ?? 0) - input.quantity;
+    const remaining =
+      (nextInventory[input.resourceId] ?? 0) - input.quantity;
 
     if (remaining === 0) {
       delete nextInventory[input.resourceId];
