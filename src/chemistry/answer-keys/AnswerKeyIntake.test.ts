@@ -19,8 +19,8 @@ function createDraft() {
     sources: [
       {
         sourceId: "SRC-001",
-        sourceType: "teacher-approved-reference",
-        locator: "Chemistry reference, chapter 1",
+        sourceType: "reference",
+        locator: "Test fixture only",
         capturedAt: "2026-11-17T10:00:00Z",
         contentFingerprint: "sha256-source-001",
       },
@@ -31,8 +31,27 @@ function createDraft() {
   });
 }
 
+function createVerifiedRecord() {
+  const submitted = submitAnswerKeyForReview(createDraft());
+
+  return verifyAnswerKey(
+    submitted,
+    "reviewer-001",
+    "2026-11-17T11:00:00Z",
+    "verified"
+  );
+}
+
+function createApprovedRecord() {
+  return approveAnswerKey(
+    createVerifiedRecord(),
+    "approver-001",
+    "2026-11-17T12:00:00Z"
+  );
+}
+
 describe("AnswerKeyIntake", () => {
-  it("creates a draft with pending review statuses", () => {
+  it("creates a draft with pending statuses", () => {
     const record = createDraft();
 
     expect(record.recordStatus).toBe("draft");
@@ -60,18 +79,58 @@ describe("AnswerKeyIntake", () => {
     ).toThrow("Answer-key version must be a positive integer.");
   });
 
-  it("submits a draft for review", () => {
-    const record = submitAnswerKeyForReview(createDraft());
-
-    expect(record.recordStatus).toBe("in_review");
+  it("rejects invalid timestamps", () => {
+    expect(() =>
+      createAnswerKeyIntake({
+        ...createDraft(),
+        submittedAt: "not-a-date",
+      })
+    ).toThrow("Submission timestamp must be a valid timestamp.");
   });
 
-  it("rejects verification by the original submitter", () => {
-    const record = submitAnswerKeyForReview(createDraft());
+  it("rejects duplicate source IDs", () => {
+    const draft = createDraft();
+
+    expect(() =>
+      createAnswerKeyIntake({
+        ...draft,
+        sources: [
+          ...draft.sources,
+          { ...draft.sources[0] },
+        ],
+      })
+    ).toThrow("Source IDs must be unique.");
+  });
+
+  it("rejects self-supersession", () => {
+    expect(() =>
+      createAnswerKeyIntake({
+        ...createDraft(),
+        supersedesAnswerKeyId: "AK-001",
+      })
+    ).toThrow("An answer key cannot supersede itself.");
+  });
+
+  it("submits a draft for review", () => {
+    expect(
+      submitAnswerKeyForReview(createDraft()).recordStatus
+    ).toBe("in_review");
+  });
+
+  it("rejects submitting a record twice", () => {
+    const submitted = submitAnswerKeyForReview(createDraft());
+
+    expect(() =>
+      submitAnswerKeyForReview(submitted)
+    ).toThrow("Only a draft answer key can be submitted for review.");
+  });
+
+  it("rejects verification by the submitter", () => {
+    const submitted = submitAnswerKeyForReview(createDraft());
 
     expect(() =>
       verifyAnswerKey(
-        record,
+        submitted,
         "author-001",
         "2026-11-17T11:00:00Z",
         "verified"
@@ -79,27 +138,33 @@ describe("AnswerKeyIntake", () => {
     ).toThrow("The submitter cannot verify their own answer key.");
   });
 
-  it("allows an independent verifier to verify", () => {
-    const record = submitAnswerKeyForReview(createDraft());
+  it("allows independent verification", () => {
+    const record = createVerifiedRecord();
 
-    const verified = verifyAnswerKey(
-      record,
-      "reviewer-001",
-      "2026-11-17T11:00:00Z",
-      "verified"
-    );
+    expect(record.verificationStatus).toBe("verified");
+    expect(record.verifiedBy).toBe("reviewer-001");
+    expect(record.recordStatus).toBe("in_review");
+  });
 
-    expect(verified.verificationStatus).toBe("verified");
-    expect(verified.verifiedBy).toBe("reviewer-001");
-    expect(verified.recordStatus).toBe("in_review");
+  it("rejects repeated verification", () => {
+    const record = createVerifiedRecord();
+
+    expect(() =>
+      verifyAnswerKey(
+        record,
+        "reviewer-002",
+        "2026-11-17T11:30:00Z",
+        "verified"
+      )
+    ).toThrow("This answer key has already been verified.");
   });
 
   it("rejects approval before verification", () => {
-    const record = submitAnswerKeyForReview(createDraft());
+    const submitted = submitAnswerKeyForReview(createDraft());
 
     expect(() =>
       approveAnswerKey(
-        record,
+        submitted,
         "approver-001",
         "2026-11-17T12:00:00Z"
       )
@@ -107,17 +172,9 @@ describe("AnswerKeyIntake", () => {
   });
 
   it("rejects approval by the submitter", () => {
-    const submitted = submitAnswerKeyForReview(createDraft());
-    const verified = verifyAnswerKey(
-      submitted,
-      "reviewer-001",
-      "2026-11-17T11:00:00Z",
-      "verified"
-    );
-
     expect(() =>
       approveAnswerKey(
-        verified,
+        createVerifiedRecord(),
         "author-001",
         "2026-11-17T12:00:00Z"
       )
@@ -125,44 +182,26 @@ describe("AnswerKeyIntake", () => {
   });
 
   it("rejects approval by the verifier", () => {
-    const submitted = submitAnswerKeyForReview(createDraft());
-    const verified = verifyAnswerKey(
-      submitted,
-      "reviewer-001",
-      "2026-11-17T11:00:00Z",
-      "verified"
-    );
-
     expect(() =>
       approveAnswerKey(
-        verified,
+        createVerifiedRecord(),
         "reviewer-001",
         "2026-11-17T12:00:00Z"
       )
     ).toThrow("Approval must be performed by an independent approver.");
   });
 
-  it("completes the independent verification and approval flow", () => {
-    const submitted = submitAnswerKeyForReview(createDraft());
-    const verified = verifyAnswerKey(
-      submitted,
-      "reviewer-001",
-      "2026-11-17T11:00:00Z",
-      "verified"
-    );
-    const approved = approveAnswerKey(
-      verified,
-      "approver-001",
-      "2026-11-17T12:00:00Z"
-    );
+  it("completes independent verification and approval", () => {
+    const record = createApprovedRecord();
 
-    expect(approved.recordStatus).toBe("complete");
-    expect(approved.approvalStatus).toBe("approved");
-    expect(approved.approvedBy).toBe("approver-001");
+    expect(record.recordStatus).toBe("complete");
+    expect(record.approvalStatus).toBe("approved");
+    expect(record.approvedBy).toBe("approver-001");
   });
 
-  it("rejects an answer key after verification review", () => {
+  it("preserves the verification rejection decision", () => {
     const submitted = submitAnswerKeyForReview(createDraft());
+
     const rejected = verifyAnswerKey(
       submitted,
       "reviewer-001",
@@ -172,34 +211,70 @@ describe("AnswerKeyIntake", () => {
 
     expect(rejected.recordStatus).toBe("rejected");
     expect(rejected.verificationStatus).toBe("rejected");
+    expect(rejected.approvalStatus).toBe("rejected");
   });
 
-  it("supports quarantine and revocation of a completed record", () => {
-    const submitted = submitAnswerKeyForReview(createDraft());
-    const verified = verifyAnswerKey(
-      submitted,
-      "reviewer-001",
-      "2026-11-17T11:00:00Z",
-      "verified"
-    );
-    const approved = approveAnswerKey(
-      verified,
-      "approver-001",
-      "2026-11-17T12:00:00Z"
-    );
-
+  it("stores quarantine reason and timestamp", () => {
     const quarantined = quarantineAnswerKey(
-      approved,
-      "Source requires re-review."
+      createApprovedRecord(),
+      "Source requires re-review.",
+      "2026-11-17T13:00:00Z"
     );
 
     expect(quarantined.recordStatus).toBe("quarantined");
+    expect(quarantined.quarantineReason).toBe(
+      "Source requires re-review."
+    );
+    expect(quarantined.quarantinedAt).toBe(
+      "2026-11-17T13:00:00Z"
+    );
+  });
 
+  it("stores revocation reason and timestamp", () => {
     const revoked = revokeAnswerKey(
-      quarantined,
-      "Source was invalidated."
+      createApprovedRecord(),
+      "Source was invalidated.",
+      "2026-11-17T14:00:00Z"
     );
 
     expect(revoked.recordStatus).toBe("revoked");
+    expect(revoked.revokedReason).toBe(
+      "Source was invalidated."
+    );
+    expect(revoked.revokedAt).toBe(
+      "2026-11-17T14:00:00Z"
+    );
+  });
+
+  it("rejects quarantine of an unapproved record", () => {
+    expect(() =>
+      quarantineAnswerKey(
+        createVerifiedRecord(),
+        "Needs review.",
+        "2026-11-17T13:00:00Z"
+      )
+    ).toThrow("Only a completed answer key can be quarantined.");
+  });
+
+  it("rejects revocation of a draft", () => {
+    expect(() =>
+      revokeAnswerKey(
+        createDraft(),
+        "Invalid source.",
+        "2026-11-17T14:00:00Z"
+      )
+    ).toThrow(
+      "Only a completed or quarantined answer key can be revoked."
+    );
+  });
+
+  it("keeps records immutable", () => {
+    const record = createDraft();
+    const submitted = submitAnswerKeyForReview(record);
+
+    expect(record.recordStatus).toBe("draft");
+    expect(submitted.recordStatus).toBe("in_review");
+    expect(Object.isFrozen(record)).toBe(true);
+    expect(Object.isFrozen(record.sources)).toBe(true);
   });
 });
