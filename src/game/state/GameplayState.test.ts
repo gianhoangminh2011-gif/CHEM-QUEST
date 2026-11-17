@@ -138,6 +138,26 @@ describe('GameplayState', () => {
     expect(state.collectedResourceIds).toEqual([]);
   });
 
+  it('ignores malformed runtime actions without crashing', () => {
+    const state = createGameplayState();
+
+    const result = updateGameplayState(state, null as never);
+
+    expect(result).toBe(state);
+  });
+
+  it('ignores non-string runtime IDs without crashing', () => {
+    const state = createGameplayState();
+
+    const result = updateGameplayState(state, {
+      type: 'COLLECT_RESOURCE',
+      id: 123,
+    } as never);
+
+    expect(result).toBe(state);
+    expect(result.collectedResourceIds).toEqual([]);
+  });
+
   it('trims whitespace around resource IDs', () => {
     const state = updateGameplayState(createGameplayState(), {
       type: 'COLLECT_RESOURCE',
