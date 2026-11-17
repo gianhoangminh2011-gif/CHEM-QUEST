@@ -277,4 +277,82 @@ describe("AnswerKeyIntake", () => {
     expect(Object.isFrozen(record)).toBe(true);
     expect(Object.isFrozen(record.sources)).toBe(true);
   });
+
+  it("rejects a source captured after submission", () => {
+    expect(() =>
+      createAnswerKeyIntake({
+        ...createDraft(),
+        sources: [
+          {
+            sourceId: "SRC-LATE",
+            sourceType: "reference",
+            locator: "Test fixture",
+            capturedAt: "2026-11-18T11:00:00Z",
+            contentFingerprint: "sha256-late",
+          },
+        ],
+      })
+    ).toThrow(
+      "Source capture timestamp cannot be later than submission."
+    );
+  });
+
+  it("rejects verification before submission", () => {
+    const submitted = submitAnswerKeyForReview(createDraft());
+
+    expect(() =>
+      verifyAnswerKey(
+        submitted,
+        "reviewer-001",
+        "2026-11-17T09:00:00Z",
+        "verified"
+      )
+    ).toThrow(
+      "Verification timestamp cannot be earlier than the preceding event."
+    );
+  });
+
+  it("rejects approval before verification", () => {
+    const verified = createVerifiedRecord();
+
+    expect(() =>
+      approveAnswerKey(
+        verified,
+        "approver-001",
+        "2026-11-17T10:00:00Z"
+      )
+    ).toThrow(
+      "Approval timestamp cannot be earlier than the preceding event."
+    );
+  });
+
+  it("rejects quarantine before approval", () => {
+    expect(() =>
+      quarantineAnswerKey(
+        createApprovedRecord(),
+        "Needs review.",
+        "2026-11-17T11:00:00Z"
+      )
+    ).toThrow(
+      "Quarantine timestamp cannot be earlier than the preceding event."
+    );
+  });
+
+  it("rejects revocation before quarantine", () => {
+    const quarantined = quarantineAnswerKey(
+      createApprovedRecord(),
+      "Needs review.",
+      "2026-11-17T13:00:00Z"
+    );
+
+    expect(() =>
+      revokeAnswerKey(
+        quarantined,
+        "Invalid source.",
+        "2026-11-17T12:00:00Z"
+      )
+    ).toThrow(
+      "Revocation timestamp cannot be earlier than the preceding event."
+    );
+  });
 });
