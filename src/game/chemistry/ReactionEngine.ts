@@ -30,7 +30,7 @@ export type ReactionResult =
       message: string;
     };
 
-// No production reactions are registered until verified data is approved.
+// Keep empty until verified production reaction data is approved.
 export const REACTION_REGISTRY: readonly ReactionDefinition[] =
   Object.freeze([]);
 
@@ -86,7 +86,11 @@ function failure(
   error: ReactionErrorCode,
   message: string
 ): ReactionResult {
-  return { success: false, error, message };
+  return {
+    success: false,
+    error,
+    message,
+  };
 }
 
 export function applyReaction(
@@ -98,7 +102,10 @@ export function applyReaction(
     typeof reaction !== "object" ||
     !isValidId(reaction.id)
   ) {
-    return failure("INVALID_REACTION", "Invalid reaction definition.");
+    return failure(
+      "INVALID_REACTION",
+      "Invalid reaction definition."
+    );
   }
 
   if (
@@ -106,15 +113,20 @@ export function applyReaction(
     typeof inventory !== "object" ||
     Array.isArray(inventory)
   ) {
-    return failure("INVALID_INVENTORY", "Invalid inventory.");
+    return failure(
+      "INVALID_INVENTORY",
+      "Invalid inventory."
+    );
   }
 
   const inputError = validateMaterials(reaction.inputs);
+
   if (inputError) {
     return failure(inputError, "Invalid reaction inputs.");
   }
 
   const outputError = validateMaterials(reaction.outputs);
+
   if (outputError) {
     return failure(outputError, "Invalid reaction outputs.");
   }
@@ -148,10 +160,11 @@ export function applyReaction(
     ...inventory,
   };
 
-  // Consume inputs first.
+  // Consume input resources.
   for (const input of reaction.inputs) {
     const remaining =
-      (nextInventory[input.resourceId] ?? 0) - input.quantity;
+      (nextInventory[input.resourceId] ?? 0) -
+      input.quantity;
 
     if (remaining === 0) {
       delete nextInventory[input.resourceId];
@@ -160,7 +173,7 @@ export function applyReaction(
     }
   }
 
-  // Add outputs after inputs have been consumed.
+  // Add output resources.
   for (const output of reaction.outputs) {
     const current = nextInventory[output.resourceId] ?? 0;
     const next = current + output.quantity;
