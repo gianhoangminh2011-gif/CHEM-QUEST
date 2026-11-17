@@ -1,16 +1,18 @@
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import PhaserGame from './game/PhaserGame';
 import LabPanel from './game/LabPanel';
 import {
   createGameplayState,
   type GameplayState,
 } from './game/state/GameplayState';
+import { saveGameplayState } from './game/state/GameplaySaveService';
 import {
   FIRST_DISCOVERY_QUEST,
   getQuestProgress,
 } from './game/quests/QuestSystem';
 import { getElementRecordsForResources } from './game/elements/ElementCatalog';
+import { getInventorySnapshot } from './game/inventory/InventorySystem';
 import {
   isAnalysed,
   type AnalysisResult,
@@ -22,14 +24,20 @@ type Panel = 'quest' | 'codex' | 'bag' | 'lab';
 
 function App() {
   const [activePanel, setActivePanel] = useState<Panel>('quest');
+
   const [gameplayState, setGameplayState] =
     useState<GameplayState>(createGameplayState);
+
+  const [hasReceivedGameplayState, setHasReceivedGameplayState] =
+    useState(false);
+
   const [chemistryBridge, setChemistryBridge] =
     useState<ChemistryBridge | null>(null);
 
   const handleGameplayStateChange = useCallback(
     (nextState: GameplayState) => {
       setGameplayState(nextState);
+      setHasReceivedGameplayState(true);
     },
     []
   );
@@ -40,6 +48,13 @@ function App() {
     },
     []
   );
+
+  useEffect(() => {
+    if (!hasReceivedGameplayState) return;
+    saveGameplayState(gameplayState);
+  }, [gameplayState, hasReceivedGameplayState]);
+
+  const inventory = getInventorySnapshot(gameplayState);
 
   const crystalCount = gameplayState.collectedResourceIds.length;
 
@@ -161,9 +176,7 @@ function App() {
             <div className="progress-track">
               <div
                 className="progress-fill"
-                style={{
-                  width: `${progressPercentage}%`,
-                }}
+                style={{ width: `${progressPercentage}%` }}
               />
             </div>
             <p className="progress-caption">
@@ -284,16 +297,55 @@ function App() {
               <div className="quest-icon">▣</div>
               <h3>Explorer's Bag</h3>
               <p className="info-description">
-                Resources collected during your journey.
+                Resources and research samples collected during your journey.
               </p>
 
               <div className="quest-objective">
-                <span>COLLECTED RESOURCES</span>
-                <p>
-                  {crystalCount === 0
-                    ? 'Your inventory is empty.'
-                    : `${crystalCount} crystal resource(s) collected.`}
-                </p>
+                <span>
+                  RESOURCES · {inventory.totalResourceQuantity}
+                </span>
+
+                {inventory.resources.length === 0 ? (
+                  <p>Your inventory is empty.</p>
+                ) : (
+                  inventory.resources.map((resource) => (
+                    <div key={resource.id}>
+                      <p>
+                        <strong>
+                          {resource.element?.symbol ?? '?'}
+                        </strong>
+                        {' · '}
+                        {resource.element?.name ?? resource.id}
+                      </p>
+                      <p>QUANTITY: {resource.quantity}</p>
+                      <p>
+                        STATUS:{' '}
+                        {resource.element?.identificationStatus.toUpperCase()
+                          ?? 'UNCATALOGUED'}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="quest-objective">
+                <span>
+                  RESEARCH SAMPLES · {inventory.totalResearchSamples}
+                </span>
+
+                {inventory.researchSamples.length === 0 ? (
+                  <p>No research samples collected yet.</p>
+                ) : (
+                  inventory.researchSamples.map((sample) => (
+                    <div key={sample.id}>
+                      <p><strong>{sample.displayName}</strong></p>
+                      <p>Source: {sample.sourceId}</p>
+                      <p>
+                        STATUS: {sample.analysed ? 'ANALYSED' : 'NOT ANALYSED'}
+                      </p>
+                    </div>
+                  ))
+                )}
               </div>
             </>
           )}

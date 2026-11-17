@@ -4,10 +4,14 @@ import Player from '../entities/Player';
 import {
   createGameplayState,
   resetGameplayState,
+  restoreGameplayState,
   updateGameplayState,
   applyCollectSample,
   applyAnalyzeSample,
 } from '../state/GameplayState';
+import {
+  loadGameplaySave,
+} from '../state/GameplaySaveService';
 import {
   CHEMISTRY_BRIDGE_CLEARED_EVENT,
   CHEMISTRY_BRIDGE_READY_EVENT,
@@ -76,13 +80,44 @@ export default class BootScene extends Phaser.Scene {
     super('BootScene');
   }
 
+  private getCrystalId(x: number, y: number): string {
+    return `crystal-${x}-${y}`;
+  }
+
+  private getOutcropId(x: number, y: number): string {
+    return `outcrop-${x}-${y}`;
+  }
+
+  private isCrystalCollected(x: number, y: number): boolean {
+    return this.gameplayState.collectedResourceIds.includes(
+      this.getCrystalId(x, y)
+    );
+  }
+
+  private isOutcropCollected(x: number, y: number): boolean {
+    const sampleId = `sample:${this.getOutcropId(x, y)}`;
+
+    return Object.prototype.hasOwnProperty.call(
+      this.gameplayState.researchSamplesById,
+      sampleId
+    );
+  }
+
   create() {
     this.cameras.main.setBackgroundColor('#14251d');
 
     this.obstacles.length = 0;
     this.interactables.length = 0;
-    this.collectedCrystalCount = 0;
-    this.gameplayState = resetGameplayState();
+
+    const savedState = loadGameplaySave();
+
+    this.gameplayState = savedState
+      ? restoreGameplayState(savedState)
+      : resetGameplayState();
+
+    this.collectedCrystalCount =
+      this.gameplayState.collectedResourceIds.length;
+
     this.interactionTarget = null;
 
     this.drawWorld();
@@ -316,7 +351,7 @@ export default class BootScene extends Phaser.Scene {
     this.elementCounter = this.add.text(
       780,
       25,
-      'ELEMENTS: 0/3',
+      `ELEMENTS: ${this.collectedCrystalCount}/3`,
       {
         fontFamily: 'Arial',
         fontSize: '13px',
@@ -538,6 +573,7 @@ export default class BootScene extends Phaser.Scene {
     this.addTree(620, 390, 1.1);
     this.addTree(365, 410, 0.65);
     this.addTree(540, 155, 0.7);
+
     this.addTree(790, 350, 0.7);
 
     this.addCrystal(540, 210);
@@ -633,22 +669,29 @@ export default class BootScene extends Phaser.Scene {
 
     crystal.setDepth(y);
 
+    const used = this.isCrystalCollected(x, y);
+
     this.interactables.push({
       kind: 'crystal',
       x,
       y,
       object: crystal,
-      used: false,
+      used,
     });
 
-    this.tweens.add({
-      targets: glow,
-      alpha: 0.35,
-      duration: 1200,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
+    if (used) {
+      crystal.setVisible(false);
+      crystal.setActive(false);
+    } else {
+      this.tweens.add({
+        targets: glow,
+        alpha: 0.35,
+        duration: 1200,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    }
   }
 
   private addMineralOutcrop(x: number, y: number) {
@@ -685,13 +728,20 @@ export default class BootScene extends Phaser.Scene {
 
     outcrop.setDepth(y);
 
+    const used = this.isOutcropCollected(x, y);
+
     this.interactables.push({
       kind: 'outcrop',
       x,
       y,
       object: outcrop,
-      used: false,
+      used,
     });
+
+    if (used) {
+      outcrop.setVisible(false);
+      outcrop.setActive(false);
+    }
 
     this.obstacles.push({
       x,
@@ -860,7 +910,7 @@ export default class BootScene extends Phaser.Scene {
         this.gameplayState,
         {
           type: 'COLLECT_RESOURCE',
-          id: `crystal-${target.x}-${target.y}`,
+          id: this.getCrystalId(target.x, target.y),
         }
       );
 
@@ -875,7 +925,7 @@ export default class BootScene extends Phaser.Scene {
       const transition = applyCollectSample(
         this.gameplayState,
         {
-          sourceId: `outcrop-${target.x}-${target.y}`,
+          sourceId: this.getOutcropId(target.x, target.y),
           sampleType: 'unidentified-mineral',
         }
       );
@@ -889,6 +939,7 @@ export default class BootScene extends Phaser.Scene {
 
       this.gameplayState = transition.state;
       target.used = true;
+      target.object.destroy();
 
       this.showInteractionFeedback(
         'MINERAL SAMPLE COLLECTED'

@@ -97,6 +97,13 @@ export function resetGameplayState(): GameplayState {
   return nextState;
 }
 
+export function restoreGameplayState(
+  state: GameplayState
+): GameplayState {
+  notifyGameplayState(state);
+  return state;
+}
+
 function addUniqueId(ids: string[], id: string): string[] {
   const normalizedId = id.trim();
 
