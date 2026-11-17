@@ -1,283 +1,231 @@
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from "vitest";
 import {
-  ANALYSIS_DISCLAIMER,
-  analyzeSample,
-  collectSample,
-  countValidAnalysisResults,
-  getCollectionWrapWidth,
-  isAnalysed,
-} from './ChemistrySystem';
-import { createGameplayState } from '../state/GameplayState';
+  applyReaction,
+  getReactionById,
+  REACTION_REGISTRY,
+  type ReactionDefinition,
+} from "./ReactionEngine";
 
-describe('ChemistrySystem', () => {
-  it('collects a valid unidentified mineral sample', () => {
-    const state = createGameplayState();
+describe("ReactionEngine", () => {
+  const validReaction: ReactionDefinition = {
+    id: "test-reaction",
+    inputs: [{ resourceId: "water", quantity: 2 }],
+    outputs: [{ resourceId: "hydrogen", quantity: 2 }],
+  };
 
-    const transition = collectSample(state, {
-      sourceId: 'outcrop-350-315',
-      sampleType: 'unidentified-mineral',
+  it("applies a valid reaction", () => {
+    const result = applyReaction(validReaction, {
+      water: 5,
+      oxygen: 3,
     });
 
-    expect(transition.result.ok).toBe(true);
-    expect(transition.state).not.toBe(state);
+    expect(result.success).toBe(true);
 
-    expect(
-      transition.state.researchSamplesById[
-        'sample:outcrop-350-315'
-      ]
-    ).toEqual({
-      id: 'sample:outcrop-350-315',
-      sourceId: 'outcrop-350-315',
-      sampleType: 'unidentified-mineral',
-      displayName: 'Unidentified Mineral Sample',
-    });
-  });
-
-  it('rejects invalid source IDs', () => {
-    const state = createGameplayState();
-
-    const invalidValues: unknown[] = [
-      '',
-      ' ',
-      ' outcrop-350-315',
-      'outcrop-350-315 ',
-      'OUTCROP-350-315',
-      'outcrop_350_315',
-      'a'.repeat(65),
-      null,
-      123,
-    ];
-
-    for (const sourceId of invalidValues) {
-      const transition = collectSample(state, {
-        sourceId,
-        sampleType: 'unidentified-mineral',
-      });
-
-      expect(transition.result).toEqual({
-        ok: false,
-        error: 'INVALID_SOURCE_ID',
-      });
-
-      expect(transition.state).toBe(state);
-    }
-  });
-
-  it('rejects unsupported sample types', () => {
-    const state = createGameplayState();
-
-    const transition = collectSample(state, {
-      sourceId: 'outcrop-350-315',
-      sampleType: 'unknown-type',
-    });
-
-    expect(transition.result).toEqual({
-      ok: false,
-      error: 'UNKNOWN_SAMPLE_TYPE',
-    });
-
-    expect(transition.state).toBe(state);
-  });
-
-  it('returns the existing sample when collection is duplicated', () => {
-    const state = createGameplayState();
-
-    const first = collectSample(state, {
-      sourceId: 'outcrop-350-315',
-      sampleType: 'unidentified-mineral',
-    });
-
-    expect(first.result.ok).toBe(true);
-
-    const second = collectSample(first.state, {
-      sourceId: 'outcrop-350-315',
-      sampleType: 'unidentified-mineral',
-    });
-
-    expect(second.result.ok).toBe(true);
-
-    if (second.result.ok) {
-      expect(second.result.duplicate).toBe(true);
-    }
-
-    expect(second.state).toBe(first.state);
-  });
-
-  it('does not analyze a sample before collection', () => {
-    const state = createGameplayState();
-
-    const transition = analyzeSample(
-      state,
-      'sample:outcrop-350-315'
-    );
-
-    expect(transition.result).toEqual({
-      ok: false,
-      error: 'SAMPLE_NOT_FOUND',
-    });
-
-    expect(transition.state).toBe(state);
-  });
-
-  it('rejects malformed and reserved sample IDs', () => {
-    const state = createGameplayState();
-
-    const invalidIds = [
-      '',
-      'constructor',
-      'sample:',
-      'sample:__proto__',
-      'sample:toString',
-      'sample:Invalid-ID',
-      'sample:invalid_id',
-      'sample: invalid',
-    ];
-
-    for (const sampleId of invalidIds) {
-      const transition = analyzeSample(state, sampleId);
-
-      expect(transition.result).toEqual({
-        ok: false,
-        error: 'INVALID_SAMPLE_ID',
-      });
-
-      expect(transition.state).toBe(state);
-    }
-  });
-
-  it('treats sample:constructor as a valid ID that has not been collected', () => {
-    const state = createGameplayState();
-
-    const transition = analyzeSample(
-      state,
-      'sample:constructor'
-    );
-
-    expect(transition.result).toEqual({
-      ok: false,
-      error: 'SAMPLE_NOT_FOUND',
-    });
-  });
-
-  it('creates a fictional, unverified analysis result', () => {
-    const collected = collectSample(
-      createGameplayState(),
-      {
-        sourceId: 'outcrop-350-315',
-        sampleType: 'unidentified-mineral',
-      }
-    );
-
-    expect(collected.result.ok).toBe(true);
-
-    const transition = analyzeSample(
-      collected.state,
-      'sample:outcrop-350-315'
-    );
-
-    expect(transition.result.ok).toBe(true);
-
-    if (transition.result.ok) {
-      expect(transition.result.value).toEqual({
-        sampleId: 'sample:outcrop-350-315',
-        resultCode: 'UNIDENTIFIED_MINERAL',
-        title: 'Unidentified Sample',
-        summary: 'This sample has not been identified.',
-        identificationStatus: 'unidentified',
-        isVerified: false,
-        disclaimer: ANALYSIS_DISCLAIMER,
+    if (result.success) {
+      expect(result.reactionId).toBe("test-reaction");
+      expect(result.inventory).toEqual({
+        water: 3,
+        oxygen: 3,
+        hydrogen: 2,
       });
     }
   });
 
-  it('returns the existing result when analysis is repeated', () => {
-    const collected = collectSample(
-      createGameplayState(),
-      {
-        sourceId: 'outcrop-350-315',
-        sampleType: 'unidentified-mineral',
-      }
-    );
+  it("does not mutate the original inventory", () => {
+    const inventory = { water: 5 };
 
-    const first = analyzeSample(
-      collected.state,
-      'sample:outcrop-350-315'
-    );
+    applyReaction(validReaction, inventory);
 
-    expect(first.result.ok).toBe(true);
-
-    const second = analyzeSample(
-      first.state,
-      'sample:outcrop-350-315'
-    );
-
-    expect(second.result.ok).toBe(true);
-
-    if (second.result.ok) {
-      expect(second.result.duplicate).toBe(true);
-    }
-
-    expect(second.state).toBe(first.state);
+    expect(inventory).toEqual({ water: 5 });
   });
 
-  it('counts only valid analysis results linked to collected samples', () => {
-    const collected = collectSample(
-      createGameplayState(),
-      {
-        sourceId: 'outcrop-350-315',
-        sampleType: 'unidentified-mineral',
-      }
-    );
+  it("rejects insufficient resources", () => {
+    const result = applyReaction(validReaction, { water: 1 });
 
-    const analyzed = analyzeSample(
-      collected.state,
-      'sample:outcrop-350-315'
-    );
-
-    expect(countValidAnalysisResults(collected.state)).toBe(0);
-    expect(countValidAnalysisResults(analyzed.state)).toBe(1);
-
-    expect(
-      isAnalysed(
-        analyzed.state,
-        'sample:outcrop-350-315'
-      )
-    ).toBe(true);
-
-    expect(
-      isAnalysed(
-        analyzed.state,
-        'sample:missing'
-      )
-    ).toBe(false);
+    expect(result).toMatchObject({
+      success: false,
+      error: "INSUFFICIENT_RESOURCES",
+    });
   });
 
-  it('does not count an orphaned analysis result', () => {
-    const state = createGameplayState();
+  it("rejects an invalid reaction ID", () => {
+    const reaction = {
+      ...validReaction,
+      id: " ",
+    } as ReactionDefinition;
 
-    const invalidState = {
-      ...state,
-      analysisResultsBySampleId: {
-        'sample:missing': {
-          sampleId: 'sample:missing',
-          resultCode: 'UNIDENTIFIED_MINERAL' as const,
-          title: 'Unidentified Sample',
-          summary: 'This sample has not been identified.',
-          identificationStatus: 'unidentified' as const,
-          isVerified: false as const,
-          disclaimer: ANALYSIS_DISCLAIMER,
-        },
-      },
+    const result = applyReaction(reaction, { water: 5 });
+
+    expect(result).toMatchObject({
+      success: false,
+      error: "INVALID_REACTION",
+    });
+  });
+
+  it("rejects invalid input quantities", () => {
+    const reaction = {
+      ...validReaction,
+      inputs: [{ resourceId: "water", quantity: 0 }],
+    } as ReactionDefinition;
+
+    const result = applyReaction(reaction, { water: 5 });
+
+    expect(result).toMatchObject({
+      success: false,
+      error: "INVALID_QUANTITY",
+    });
+  });
+
+  it("rejects fractional quantities", () => {
+    const reaction = {
+      ...validReaction,
+      inputs: [{ resourceId: "water", quantity: 1.5 }],
+    } as ReactionDefinition;
+
+    const result = applyReaction(reaction, { water: 5 });
+
+    expect(result).toMatchObject({
+      success: false,
+      error: "INVALID_QUANTITY",
+    });
+  });
+
+  it("rejects duplicate input resource IDs", () => {
+    const reaction: ReactionDefinition = {
+      ...validReaction,
+      inputs: [
+        { resourceId: "water", quantity: 1 },
+        { resourceId: "water", quantity: 1 },
+      ],
     };
 
-    expect(countValidAnalysisResults(invalidState)).toBe(0);
-    expect(isAnalysed(invalidState, 'sample:missing')).toBe(false);
+    const result = applyReaction(reaction, { water: 5 });
+
+    expect(result).toMatchObject({
+      success: false,
+      error: "DUPLICATE_RESOURCE",
+    });
   });
 
-  it('calculates a safe collection feedback width', () => {
-    expect(getCollectionWrapWidth(1200, 100)).toBe(960);
-    expect(getCollectionWrapWidth(700, 100)).toBe(600);
-    expect(getCollectionWrapWidth(50, 100)).toBe(0);
+  it("rejects duplicate output resource IDs", () => {
+    const reaction: ReactionDefinition = {
+      ...validReaction,
+      outputs: [
+        { resourceId: "hydrogen", quantity: 1 },
+        { resourceId: "hydrogen", quantity: 1 },
+      ],
+    };
+
+    const result = applyReaction(reaction, { water: 5 });
+
+    expect(result).toMatchObject({
+      success: false,
+      error: "DUPLICATE_RESOURCE",
+    });
+  });
+
+  it("rejects invalid inventory quantities", () => {
+    const result = applyReaction(validReaction, {
+      water: -1,
+    });
+
+    expect(result).toMatchObject({
+      success: false,
+      error: "INVALID_INVENTORY",
+    });
+  });
+
+  it("rejects unsafe inventory quantities", () => {
+    const result = applyReaction(validReaction, {
+      water: Number.MAX_SAFE_INTEGER + 1,
+    });
+
+    expect(result).toMatchObject({
+      success: false,
+      error: "INVALID_INVENTORY",
+    });
+  });
+
+  it("rejects output quantity overflow", () => {
+    const reaction: ReactionDefinition = {
+      id: "overflow-test",
+      inputs: [{ resourceId: "water", quantity: 1 }],
+      outputs: [{ resourceId: "hydrogen", quantity: 2 }],
+    };
+
+    const result = applyReaction(reaction, {
+      water: 1,
+      hydrogen: Number.MAX_SAFE_INTEGER,
+    });
+
+    expect(result).toMatchObject({
+      success: false,
+      error: "QUANTITY_OVERFLOW",
+    });
+  });
+
+  it("allows an output to use the same resource ID as an input", () => {
+    const reaction: ReactionDefinition = {
+      id: "same-resource-test",
+      inputs: [{ resourceId: "crystal", quantity: 2 }],
+      outputs: [{ resourceId: "crystal", quantity: 5 }],
+    };
+
+    const result = applyReaction(reaction, { crystal: 4 });
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.inventory.crystal).toBe(7);
+    }
+  });
+
+  it("does not expose unverified reactions in the registry", () => {
+    expect(REACTION_REGISTRY).toEqual([]);
+    expect(getReactionById("test-reaction")).toBeUndefined();
+  });
+
+  it("returns an immutable result inventory", () => {
+    const result = applyReaction(validReaction, { water: 5 });
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(Object.isFrozen(result.inventory)).toBe(true);
+    }
+  });
+
+  it("rejects prototype-related resource IDs", () => {
+    for (const resourceId of [
+      "__proto__",
+      "constructor",
+      "prototype",
+      "toString",
+      "hasOwnProperty",
+    ]) {
+      const reaction: ReactionDefinition = {
+        id: "reserved-id-test",
+        inputs: [{ resourceId, quantity: 1 }],
+        outputs: [{ resourceId: "hydrogen", quantity: 1 }],
+      };
+
+      expect(applyReaction(reaction, {})).toMatchObject({
+        success: false,
+        error: "INVALID_REACTION",
+      });
+    }
+  });
+
+  it("rejects prototype-related inventory keys", () => {
+    const inventory = Object.defineProperty({}, "constructor", {
+      value: 1,
+      enumerable: true,
+    });
+
+    expect(applyReaction(validReaction, inventory)).toMatchObject({
+      success: false,
+      error: "INVALID_INVENTORY",
+    });
   });
 });
