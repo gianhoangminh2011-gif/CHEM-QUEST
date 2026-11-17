@@ -19,7 +19,10 @@ export function evaluateAnswer(
     throw new Error("Invalid selected answer.");
   }
 
-  if (typeof correctAnswer !== "string" || correctAnswer.trim().length === 0) {
+  if (
+    typeof correctAnswer !== "string" ||
+    correctAnswer.trim().length === 0
+  ) {
     throw new Error("A valid correct answer is required.");
   }
 
@@ -27,8 +30,7 @@ export function evaluateAnswer(
     selectedAnswer !== null && selectedAnswer.trim().length > 0;
 
   const isCorrect =
-    isAnswered &&
-    selectedAnswer.trim() === correctAnswer.trim();
+    isAnswered && selectedAnswer.trim() === correctAnswer.trim();
 
   return {
     questionId,
