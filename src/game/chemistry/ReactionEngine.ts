@@ -35,10 +35,17 @@ export const REACTION_REGISTRY: readonly ReactionDefinition[] =
   Object.freeze([]);
 
 function isValidId(value: unknown): value is string {
+  if (
+    typeof value !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(value)
+  ) {
+    return false;
+  }
+
   return (
-    typeof value === "string" &&
-    value.length > 0 &&
-    value.trim() === value
+    value !== "__proto__" &&
+    value !== "prototype" &&
+    !Object.prototype.hasOwnProperty.call(Object.prototype, value)
   );
 }
 
@@ -102,10 +109,7 @@ export function applyReaction(
     typeof reaction !== "object" ||
     !isValidId(reaction.id)
   ) {
-    return failure(
-      "INVALID_REACTION",
-      "Invalid reaction definition."
-    );
+    return failure("INVALID_REACTION", "Invalid reaction definition.");
   }
 
   if (
@@ -113,10 +117,7 @@ export function applyReaction(
     typeof inventory !== "object" ||
     Array.isArray(inventory)
   ) {
-    return failure(
-      "INVALID_INVENTORY",
-      "Invalid inventory."
-    );
+    return failure("INVALID_INVENTORY", "Invalid inventory.");
   }
 
   const inputError = validateMaterials(reaction.inputs);
@@ -146,7 +147,9 @@ export function applyReaction(
   }
 
   for (const input of reaction.inputs) {
-    const available = inventory[input.resourceId] ?? 0;
+    const available = Object.hasOwn(inventory, input.resourceId)
+      ? inventory[input.resourceId]
+      : 0;
 
     if (available < input.quantity) {
       return failure(
@@ -162,8 +165,7 @@ export function applyReaction(
 
   for (const input of reaction.inputs) {
     const remaining =
-      (nextInventory[input.resourceId] ?? 0) -
-      input.quantity;
+      (nextInventory[input.resourceId] ?? 0) - input.quantity;
 
     if (remaining === 0) {
       delete nextInventory[input.resourceId];
@@ -196,6 +198,10 @@ export function applyReaction(
 export function getReactionById(
   reactionId: string
 ): ReactionDefinition | undefined {
+  if (!isValidId(reactionId)) {
+    return undefined;
+  }
+
   return REACTION_REGISTRY.find(
     (reaction) => reaction.id === reactionId
   );
