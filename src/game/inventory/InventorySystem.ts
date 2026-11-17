@@ -1,3 +1,4 @@
+
 import type { GameplayState } from '../state/GameplayState';
 import {
   getElementRecordsForResources,
@@ -33,10 +34,8 @@ export interface InventorySnapshot {
 }
 
 /**
- * Creates a read-only inventory projection from GameplayState.
- *
- * This module does not mutate gameplay state,
- * write to storage, or introduce new save fields.
+ * Builds a read-only inventory projection from GameplayState.
+ * Does not mutate gameplay state or introduce save fields.
  */
 export function getInventorySnapshot(
   state: GameplayState
