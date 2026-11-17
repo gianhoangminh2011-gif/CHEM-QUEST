@@ -1,53 +1,73 @@
-export type AnswerKeyStatus =
-  | "DRAFT"
-  | "SUBMITTED"
-  | "VERIFIED"
-  | "APPROVED"
-  | "QUARANTINED"
-  | "REVOKED";
+
+export type AnswerKeyRecordStatus =
+  | "draft"
+  | "in_review"
+  | "complete"
+  | "rejected"
+  | "quarantined"
+  | "revoked";
+
+export type AnswerKeyVerificationStatus =
+  | "pending"
+  | "verified"
+  | "rejected";
+
+export type AnswerKeyApprovalStatus =
+  | "pending"
+  | "approved"
+  | "rejected";
 
 export interface AnswerKeySource {
   sourceId: string;
   sourceType: string;
-  reference: string;
-  fingerprint: string;
+  locator: string;
+  capturedAt: string;
+  contentFingerprint: string;
 }
 
 export interface AnswerKeyIntakeInput {
   answerKeyId: string;
-  subjectId: string;
-  topicId: string;
-  version: number;
-  status: AnswerKeyStatus;
-  answers: Record<string, string>;
-  sources: AnswerKeySource[];
+  questionId: string;
+  questionVersion: string;
+  questionSnapshotFingerprint: string;
+  correctChoiceId: string;
+  sources: readonly AnswerKeySource[];
   submittedBy: string;
   submittedAt: string;
-  verifiedBy?: string | null;
-  verifiedAt?: string | null;
-  approvedBy?: string | null;
-  approvedAt?: string | null;
+  version: number;
   supersedesAnswerKeyId?: string | null;
 }
 
 export interface AnswerKeyIntakeRecord {
   answerKeyId: string;
-  subjectId: string;
-  topicId: string;
-  version: number;
-  status: AnswerKeyStatus;
-  answers: Readonly<Record<string, string>>;
+  questionId: string;
+  questionVersion: string;
+  questionSnapshotFingerprint: string;
+  correctChoiceId: string;
   sources: readonly Readonly<AnswerKeySource>[];
   submittedBy: string;
   submittedAt: string;
+  version: number;
+  supersedesAnswerKeyId: string | null;
+  recordStatus: AnswerKeyRecordStatus;
+  verificationStatus: AnswerKeyVerificationStatus;
+  approvalStatus: AnswerKeyApprovalStatus;
   verifiedBy: string | null;
   verifiedAt: string | null;
+  verificationDecisionRef: string | null;
   approvedBy: string | null;
   approvedAt: string | null;
-  supersedesAnswerKeyId: string | null;
+  approvalDecisionRef: string | null;
+  quarantineReason: string | null;
+  quarantinedAt: string | null;
+  revokedReason: string | null;
+  revokedAt: string | null;
 }
 
-function required(value: string, field: string): void {
+function required(
+  value: unknown,
+  field: string
+): asserts value is string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error(`${field} is required.`);
   }
@@ -62,37 +82,27 @@ function validTimestamp(value: string, field: string): void {
 }
 
 function freezeRecord(
-  input: AnswerKeyIntakeInput
+  record: AnswerKeyIntakeRecord
 ): AnswerKeyIntakeRecord {
-  const answers = Object.freeze({ ...input.answers });
-
   const sources = Object.freeze(
-    input.sources.map((source) =>
-      Object.freeze({
-        sourceId: source.sourceId.trim(),
-        sourceType: source.sourceType.trim(),
-        reference: source.reference.trim(),
-        fingerprint: source.fingerprint.trim(),
-      })
+    record.sources.map((source) =>
+      Object.freeze({ ...source })
     )
   );
 
   return Object.freeze({
-    answerKeyId: input.answerKeyId.trim(),
-    subjectId: input.subjectId.trim(),
-    topicId: input.topicId.trim(),
-    version: input.version,
-    status: input.status,
-    answers,
+    ...record,
     sources,
-    submittedBy: input.submittedBy.trim(),
-    submittedAt: input.submittedAt.trim(),
-    verifiedBy: input.verifiedBy?.trim() || null,
-    verifiedAt: input.verifiedAt?.trim() || null,
-    approvedBy: input.approvedBy?.trim() || null,
-    approvedAt: input.approvedAt?.trim() || null,
-    supersedesAnswerKeyId:
-      input.supersedesAnswerKeyId?.trim() || null,
+  });
+}
+
+function copyWith(
+  record: AnswerKeyIntakeRecord,
+  changes: Partial<AnswerKeyIntakeRecord>
+): AnswerKeyIntakeRecord {
+  return freezeRecord({
+    ...record,
+    ...changes,
   });
 }
 
@@ -100,8 +110,13 @@ export function createAnswerKeyIntake(
   input: AnswerKeyIntakeInput
 ): AnswerKeyIntakeRecord {
   required(input.answerKeyId, "Answer-key ID");
-  required(input.subjectId, "Subject ID");
-  required(input.topicId, "Topic ID");
+  required(input.questionId, "Question ID");
+  required(input.questionVersion, "Question version");
+  required(
+    input.questionSnapshotFingerprint,
+    "Question snapshot fingerprint"
+  );
+  required(input.correctChoiceId, "Correct choice ID");
   required(input.submittedBy, "Submitter");
   validTimestamp(input.submittedAt, "Submission timestamp");
 
@@ -109,16 +124,8 @@ export function createAnswerKeyIntake(
     throw new Error("Answer-key version must be a positive integer.");
   }
 
-  if (!["DRAFT", "SUBMITTED", "VERIFIED", "APPROVED", "QUARANTINED", "REVOKED"].includes(input.status)) {
-    throw new Error("Invalid answer-key status.");
-  }
-
-  if (!input.answers || typeof input.answers !== "object") {
-    throw new Error("Answer-key answers are required.");
-  }
-
   if (!Array.isArray(input.sources) || input.sources.length === 0) {
-    throw new Error("At least one answer-key source is required.");
+    throw new Error("At least one source reference is required.");
   }
 
   const sourceIds = new Set<string>();
@@ -126,50 +133,221 @@ export function createAnswerKeyIntake(
   for (const source of input.sources) {
     required(source.sourceId, "Source ID");
     required(source.sourceType, "Source type");
-    required(source.reference, "Source reference");
-    required(source.fingerprint, "Source fingerprint");
+    required(source.locator, "Source locator");
+    required(
+      source.contentFingerprint,
+      "Source content fingerprint"
+    );
+    validTimestamp(
+      source.capturedAt,
+      "Source capture timestamp"
+    );
 
-    const normalizedSourceId = source.sourceId.trim();
+    const normalizedId = source.sourceId.trim();
 
-    if (sourceIds.has(normalizedSourceId)) {
-      throw new Error("Duplicate answer-key source ID.");
+    if (sourceIds.has(normalizedId)) {
+      throw new Error("Source IDs must be unique.");
     }
 
-    sourceIds.add(normalizedSourceId);
+    sourceIds.add(normalizedId);
   }
 
   if (input.supersedesAnswerKeyId != null) {
-    required(input.supersedesAnswerKeyId, "Superseded answer-key ID");
+    required(
+      input.supersedesAnswerKeyId,
+      "Superseded answer-key ID"
+    );
 
-    // Compare normalized IDs to prevent whitespace bypass.
     if (
-      input.supersedesAnswerKeyId.trim() === input.answerKeyId.trim()
+      input.supersedesAnswerKeyId.trim() ===
+      input.answerKeyId.trim()
     ) {
       throw new Error("An answer key cannot supersede itself.");
     }
   }
 
-  if (input.status === "VERIFIED" || input.status === "APPROVED") {
-    required(input.verifiedBy ?? "", "Verifier");
-    validTimestamp(input.verifiedAt ?? "", "Verification timestamp");
+  return freezeRecord({
+    answerKeyId: input.answerKeyId.trim(),
+    questionId: input.questionId.trim(),
+    questionVersion: input.questionVersion.trim(),
+    questionSnapshotFingerprint:
+      input.questionSnapshotFingerprint.trim(),
+    correctChoiceId: input.correctChoiceId.trim(),
 
-    if (input.verifiedBy?.trim() === input.submittedBy.trim()) {
-      throw new Error("Verifier must be independent from submitter.");
-    }
+    sources: input.sources.map((source) => ({
+      sourceId: source.sourceId.trim(),
+      sourceType: source.sourceType.trim(),
+      locator: source.locator.trim(),
+      capturedAt: source.capturedAt.trim(),
+      contentFingerprint: source.contentFingerprint.trim(),
+    })),
+
+    submittedBy: input.submittedBy.trim(),
+    submittedAt: input.submittedAt.trim(),
+    version: input.version,
+    supersedesAnswerKeyId:
+      input.supersedesAnswerKeyId?.trim() || null,
+
+    recordStatus: "draft",
+    verificationStatus: "pending",
+    approvalStatus: "pending",
+
+    verifiedBy: null,
+    verifiedAt: null,
+    verificationDecisionRef: null,
+
+    approvedBy: null,
+    approvedAt: null,
+    approvalDecisionRef: null,
+
+    quarantineReason: null,
+    quarantinedAt: null,
+    revokedReason: null,
+    revokedAt: null,
+  });
+}
+
+export function submitAnswerKeyForReview(
+  record: AnswerKeyIntakeRecord
+): AnswerKeyIntakeRecord {
+  if (record.recordStatus !== "draft") {
+    throw new Error(
+      "Only a draft answer key can be submitted for review."
+    );
   }
 
-  if (input.status === "APPROVED") {
-    required(input.approvedBy ?? "", "Approver");
-    validTimestamp(input.approvedAt ?? "", "Approval timestamp");
+  return copyWith(record, {
+    recordStatus: "in_review",
+  });
+}
 
-    if (input.approvedBy?.trim() === input.submittedBy.trim()) {
-      throw new Error("Approver must be independent from submitter.");
-    }
-
-    if (input.approvedBy?.trim() === input.verifiedBy?.trim()) {
-      throw new Error("Approver must be independent from verifier.");
-    }
+export function verifyAnswerKey(
+  record: AnswerKeyIntakeRecord,
+  reviewerId: string,
+  verifiedAt: string,
+  decision: "verified" | "rejected",
+  decisionRef: string | null = null
+): AnswerKeyIntakeRecord {
+  if (record.recordStatus !== "in_review") {
+    throw new Error(
+      "Only an answer key in review can be verified."
+    );
   }
 
-  return freezeRecord(input);
+  if (record.verificationStatus !== "pending") {
+    throw new Error(
+      "This answer key has already been verified."
+    );
+  }
+
+  required(reviewerId, "Reviewer");
+  validTimestamp(verifiedAt, "Verification timestamp");
+
+  if (reviewerId.trim() === record.submittedBy) {
+    throw new Error(
+      "The submitter cannot verify their own answer key."
+    );
+  }
+
+  if (decision !== "verified" && decision !== "rejected") {
+    throw new Error("Invalid verification decision.");
+  }
+
+  return copyWith(record, {
+    verificationStatus: decision,
+    recordStatus:
+      decision === "verified" ? "in_review" : "rejected",
+    approvalStatus:
+      decision === "verified" ? "pending" : "rejected",
+    verifiedBy: reviewerId.trim(),
+    verifiedAt: verifiedAt.trim(),
+    verificationDecisionRef: decisionRef?.trim() || null,
+  });
+}
+
+export function approveAnswerKey(
+  record: AnswerKeyIntakeRecord,
+  approverId: string,
+  approvedAt: string,
+  decisionRef: string | null = null
+): AnswerKeyIntakeRecord {
+  if (
+    record.recordStatus !== "in_review" ||
+    record.verificationStatus !== "verified"
+  ) {
+    throw new Error(
+      "Only a verified answer key can be approved."
+    );
+  }
+
+  if (record.approvalStatus !== "pending") {
+    throw new Error(
+      "This answer key has already received an approval decision."
+    );
+  }
+
+  required(approverId, "Approver");
+  validTimestamp(approvedAt, "Approval timestamp");
+
+  if (
+    approverId.trim() === record.submittedBy ||
+    approverId.trim() === record.verifiedBy
+  ) {
+    throw new Error(
+      "Approval must be performed by an independent approver."
+    );
+  }
+
+  return copyWith(record, {
+    recordStatus: "complete",
+    approvalStatus: "approved",
+    approvedBy: approverId.trim(),
+    approvedAt: approvedAt.trim(),
+    approvalDecisionRef: decisionRef?.trim() || null,
+  });
+}
+
+export function quarantineAnswerKey(
+  record: AnswerKeyIntakeRecord,
+  reason: string,
+  quarantinedAt: string
+): AnswerKeyIntakeRecord {
+  if (record.recordStatus !== "complete") {
+    throw new Error(
+      "Only a completed answer key can be quarantined."
+    );
+  }
+
+  required(reason, "Quarantine reason");
+  validTimestamp(quarantinedAt, "Quarantine timestamp");
+
+  return copyWith(record, {
+    recordStatus: "quarantined",
+    quarantineReason: reason.trim(),
+    quarantinedAt: quarantinedAt.trim(),
+  });
+}
+
+export function revokeAnswerKey(
+  record: AnswerKeyIntakeRecord,
+  reason: string,
+  revokedAt: string
+): AnswerKeyIntakeRecord {
+  if (
+    record.recordStatus !== "complete" &&
+    record.recordStatus !== "quarantined"
+  ) {
+    throw new Error(
+      "Only a completed or quarantined answer key can be revoked."
+    );
+  }
+
+  required(reason, "Revocation reason");
+  validTimestamp(revokedAt, "Revocation timestamp");
+
+  return copyWith(record, {
+    recordStatus: "revoked",
+    revokedReason: reason.trim(),
+    revokedAt: revokedAt.trim(),
+  });
 }
