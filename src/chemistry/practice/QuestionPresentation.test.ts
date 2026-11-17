@@ -1,8 +1,12 @@
+
 import { describe, expect, it } from "vitest";
-import { createQuestionPresentation } from "./QuestionPresentation";
+
+import {
+  createQuestionPresentation,
+} from "./QuestionPresentation";
 
 describe("QuestionPresentation", () => {
-  it("creates a valid question presentation", () => {
+  it("creates valid question presentation data", () => {
     expect(
       createQuestionPresentation("Q-001", "What is water?", [
         { id: "A", text: "H2O" },
@@ -20,7 +24,7 @@ describe("QuestionPresentation", () => {
 
   it("rejects a blank question ID", () => {
     expect(() =>
-      createQuestionPresentation("", "What is water?", [
+      createQuestionPresentation(" ", "What is water?", [
         { id: "A", text: "H2O" },
         { id: "B", text: "CO2" },
       ])
@@ -42,5 +46,48 @@ describe("QuestionPresentation", () => {
         { id: "A", text: "H2O" },
       ])
     ).toThrow("A question must have at least two choices.");
+  });
+
+  it("rejects choices with blank IDs", () => {
+    expect(() =>
+      createQuestionPresentation("Q-001", "What is water?", [
+        { id: " ", text: "H2O" },
+        { id: "B", text: "CO2" },
+      ])
+    ).toThrow("Every choice must have a valid ID.");
+  });
+
+  it("rejects choices with blank text", () => {
+    expect(() =>
+      createQuestionPresentation("Q-001", "What is water?", [
+        { id: "A", text: " " },
+        { id: "B", text: "CO2" },
+      ])
+    ).toThrow("Every choice must have valid text.");
+  });
+
+  it("rejects duplicate choice IDs", () => {
+    expect(() =>
+      createQuestionPresentation("Q-001", "What is water?", [
+        { id: "A", text: "H2O" },
+        { id: "A", text: "CO2" },
+      ])
+    ).toThrow("Choice IDs must be unique.");
+  });
+
+  it("normalizes surrounding whitespace", () => {
+    expect(
+      createQuestionPresentation(" Q-001 ", " What is water? ", [
+        { id: " A ", text: " H2O " },
+        { id: " B ", text: " CO2 " },
+      ])
+    ).toEqual({
+      questionId: "Q-001",
+      prompt: "What is water?",
+      choices: [
+        { id: "A", text: "H2O" },
+        { id: "B", text: "CO2" },
+      ],
+    });
   });
 });
