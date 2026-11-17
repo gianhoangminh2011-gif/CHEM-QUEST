@@ -12,11 +12,17 @@ export function evaluateAnswer(
   selectedAnswer: string | null,
   correctAnswer: string
 ): AnswerEvaluation {
-  if (typeof questionId !== "string" || questionId.trim().length === 0) {
+  if (
+    typeof questionId !== "string" ||
+    questionId.trim().length === 0
+  ) {
     throw new Error("Question ID is required.");
   }
 
-  if (selectedAnswer !== null && typeof selectedAnswer !== "string") {
+  if (
+    selectedAnswer !== null &&
+    typeof selectedAnswer !== "string"
+  ) {
     throw new Error("Invalid selected answer.");
   }
 
@@ -28,10 +34,12 @@ export function evaluateAnswer(
   }
 
   const isAnswered =
-    selectedAnswer !== null && selectedAnswer.trim().length > 0;
+    selectedAnswer !== null &&
+    selectedAnswer.trim().length > 0;
 
   const isCorrect =
-    isAnswered && selectedAnswer.trim() === correctAnswer.trim();
+    isAnswered &&
+    selectedAnswer.trim() === correctAnswer.trim();
 
   return {
     questionId,
