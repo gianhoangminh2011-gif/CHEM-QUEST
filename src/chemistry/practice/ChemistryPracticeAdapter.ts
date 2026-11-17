@@ -117,8 +117,14 @@ export function getChemistrySessionSummary(
   correctAnswers: Readonly<Record<string, string>>
 ): ChemistrySessionSummary {
   const evaluations = session.questionIds.map((questionId) => {
-    if (!Object.prototype.hasOwnProperty.call(correctAnswers, questionId)) {
-      throw new Error(`Missing correct answer for ${questionId}.`);
+    if (
+      !Object.prototype.hasOwnProperty.call(correctAnswers, questionId) ||
+      typeof correctAnswers[questionId] !== "string" ||
+      correctAnswers[questionId].trim().length === 0
+    ) {
+      throw new Error(
+        `A valid correct answer is required for ${questionId}.`
+      );
     }
 
     const submission = session.submissions[questionId];
