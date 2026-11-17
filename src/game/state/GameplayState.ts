@@ -105,6 +105,8 @@ export function restoreGameplayState(
 }
 
 function addUniqueId(ids: string[], id: string): string[] {
+  if (typeof id !== 'string') return ids;
+
   const normalizedId = id.trim();
 
   if (!normalizedId || ids.includes(normalizedId)) {
@@ -144,6 +146,14 @@ export function updateGameplayState(
   state: GameplayState,
   action: GameplayAction
 ): GameplayState {
+  if (
+    !action ||
+    typeof action !== 'object' ||
+    typeof action.type !== 'string'
+  ) {
+    return state;
+  }
+
   let nextState: GameplayState;
 
   switch (action.type) {
