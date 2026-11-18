@@ -1,166 +1,155 @@
+/**
+ * Crafting Core — DRAFT (chưa đối chiếu với file thực trên nhánh).
+ * Hàm thuần: không mutate input, không phụ thuộc Phaser/React/Inventory thật.
+ * Registry rỗng có chủ đích: chờ dữ liệu recipe được PD duyệt.
+ */
+
+export type ResourceCounts = Readonly<Record<string, number>>;
 
 export interface CraftingIngredient {
-  ingredientId: string;
-  quantity: number;
+  readonly resourceId: string;
+  readonly quantity: number;
 }
 
 export interface CraftingRecipe {
-  id: string;
-  outputId: string;
-  ingredients: readonly CraftingIngredient[];
+  readonly id: string;
+  readonly ingredients: readonly CraftingIngredient[];
+  readonly output: CraftingIngredient;
+  /** true: recipe chỉ craft được một lần (duplicate-crafting prevention). */
+  readonly oneShot?: boolean;
 }
 
-export interface InventoryStack {
-  ingredientId: string;
-  quantity: number;
-}
+export type RecipeRegistry = Readonly<Record<string, CraftingRecipe>>;
 
 export interface CraftingState {
-  inventory: readonly InventoryStack[];
-  craftedEquipmentIds: readonly string[];
+  readonly resources: ResourceCounts;
+  readonly craftedRecipeIds: readonly string[];
 }
 
-export type CraftingError =
+export type CraftingErrorCode =
+  | 'UNKNOWN_RECIPE'
   | 'INVALID_RECIPE'
-  | 'INVALID_INVENTORY'
   | 'INSUFFICIENT_INGREDIENTS'
   | 'ALREADY_CRAFTED';
 
 export type CraftingResult =
-  | { ok: true; state: CraftingState; outputId: string }
-  | { ok: false; state: CraftingState; error: CraftingError };
-
-// Chưa đăng ký recipe gameplay khi data chưa được duyệt.
-export const CRAFTING_RECIPES: readonly CraftingRecipe[] =
-  Object.freeze([]);
-
-export function isValidRecipe(recipe: CraftingRecipe): boolean {
-  if (
-    !recipe ||
-    typeof recipe.id !== 'string' ||
-    !recipe.id.trim() ||
-    typeof recipe.outputId !== 'string' ||
-    !recipe.outputId.trim() ||
-    !Array.isArray(recipe.ingredients) ||
-    recipe.ingredients.length === 0
-  ) {
-    return false;
-  }
-
-  const seen = new Set<string>();
-
-  for (const ingredient of recipe.ingredients) {
-    if (
-      !ingredient ||
-      typeof ingredient.ingredientId !== 'string' ||
-      !ingredient.ingredientId.trim() ||
-      !Number.isInteger(ingredient.quantity) ||
-      ingredient.quantity <= 0 ||
-      seen.has(ingredient.ingredientId)
-    ) {
-      return false;
+  | {
+      readonly ok: true;
+      readonly recipeId: string;
+      readonly produced: CraftingIngredient;
     }
+  | {
+      readonly ok: false;
+      readonly error: CraftingErrorCode;
+      readonly message: string;
+    };
 
-    seen.add(ingredient.ingredientId);
-  }
-
-  return true;
+export interface CraftingOutcome {
+  readonly state: CraftingState;
+  readonly result: CraftingResult;
 }
 
-function isValidInventory(
-  inventory: readonly InventoryStack[]
-): boolean {
-  if (!Array.isArray(inventory)) return false;
+/** Chưa có dữ liệu recipe được duyệt. */
+export const CRAFTING_RECIPES: RecipeRegistry = Object.freeze({});
 
-  const seen = new Set<string>();
-
-  for (const stack of inventory) {
-    if (
-      !stack ||
-      typeof stack.ingredientId !== 'string' ||
-      !stack.ingredientId.trim() ||
-      !Number.isInteger(stack.quantity) ||
-      stack.quantity < 0 ||
-      seen.has(stack.ingredientId)
-    ) {
-      return false;
-    }
-
-    seen.add(stack.ingredientId);
-  }
-
-  return true;
+function hasOwn(obj: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key);
 }
 
-export function canCraft(
-  state: CraftingState,
-  recipe: CraftingRecipe
-): CraftingError | null {
-  if (!isValidRecipe(recipe)) return 'INVALID_RECIPE';
+function isNonEmptyId(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
 
-  if (!state || !isValidInventory(state.inventory)) {
-    return 'INVALID_INVENTORY';
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+/** Trả về thông báo lỗi nếu recipe không hợp lệ, hoặc null nếu hợp lệ. */
+export function validateRecipe(recipe: CraftingRecipe): string | null {
+  if (!isNonEmptyId(recipe.id)) return 'Recipe id must be a non-empty string.';
+  if (!Array.isArray(recipe.ingredients) || recipe.ingredients.length === 0) {
+    return 'Recipe must have at least one ingredient.';
   }
-
-  if (
-    !Array.isArray(state.craftedEquipmentIds) ||
-    state.craftedEquipmentIds.some(
-      (id) => typeof id !== 'string' || !id.trim()
-    )
-  ) {
-    return 'INVALID_INVENTORY';
-  }
-
-  if (state.craftedEquipmentIds.includes(recipe.outputId)) {
-    return 'ALREADY_CRAFTED';
-  }
-
-  for (const ingredient of recipe.ingredients) {
-    const stack = state.inventory.find(
-      (item) => item.ingredientId === ingredient.ingredientId
-    );
-
-    if (!stack || stack.quantity < ingredient.quantity) {
-      return 'INSUFFICIENT_INGREDIENTS';
+  const seen = new Set<string>();
+  for (const ing of recipe.ingredients) {
+    if (!isNonEmptyId(ing.resourceId)) {
+      return 'Ingredient resourceId must be a non-empty string.';
     }
+    if (!isPositiveInteger(ing.quantity)) {
+      return `Ingredient "${ing.resourceId}" quantity must be a positive integer.`;
+    }
+    if (seen.has(ing.resourceId)) {
+      return `Duplicate ingredient id "${ing.resourceId}".`;
+    }
+    seen.add(ing.resourceId);
   }
-
+  if (!recipe.output || !isNonEmptyId(recipe.output.resourceId)) {
+    return 'Output resourceId must be a non-empty string.';
+  }
+  if (!isPositiveInteger(recipe.output.quantity)) {
+    return 'Output quantity must be a positive integer.';
+  }
   return null;
 }
 
-/** Craft atomically; failure never consumes materials. */
-export function craftItem(
+function fail(
   state: CraftingState,
-  recipe: CraftingRecipe
-): CraftingResult {
-  const error = canCraft(state, recipe);
+  error: CraftingErrorCode,
+  message: string,
+): CraftingOutcome {
+  // Thất bại: trả lại đúng state cũ (atomic, không thay đổi gì).
+  return { state, result: { ok: false, error, message } };
+}
 
-  if (error) {
-    return { ok: false, state, error };
+/** Craft một lần. Không mutate `state`; thất bại thì state giữ nguyên. */
+export function craft(
+  state: CraftingState,
+  recipeId: string,
+  registry: RecipeRegistry = CRAFTING_RECIPES,
+): CraftingOutcome {
+  if (!isNonEmptyId(recipeId) || !hasOwn(registry, recipeId)) {
+    return fail(state, 'UNKNOWN_RECIPE', `Unknown recipe "${String(recipeId)}".`);
+  }
+  const recipe = registry[recipeId];
+
+  const invalid = validateRecipe(recipe);
+  if (invalid !== null) return fail(state, 'INVALID_RECIPE', invalid);
+
+  if (recipe.oneShot === true && state.craftedRecipeIds.includes(recipe.id)) {
+    return fail(state, 'ALREADY_CRAFTED', `Recipe "${recipe.id}" was already crafted.`);
   }
 
-  const remaining = state.inventory.map((stack) => {
-    const requirement = recipe.ingredients.find(
-      (item) => item.ingredientId === stack.ingredientId
-    );
+  // Kiểm tra toàn bộ nguyên liệu TRƯỚC khi thay đổi bất cứ thứ gì.
+  for (const ing of recipe.ingredients) {
+    const have = hasOwn(state.resources, ing.resourceId)
+      ? state.resources[ing.resourceId]
+      : 0;
+    if (!(have >= ing.quantity)) {
+      return fail(
+        state,
+        'INSUFFICIENT_INGREDIENTS',
+        `Not enough "${ing.resourceId}": need ${ing.quantity}, have ${have}.`,
+      );
+    }
+  }
 
-    return {
-      ingredientId: stack.ingredientId,
-      quantity: stack.quantity - (requirement?.quantity ?? 0),
-    };
-  });
-
-  const nextState: CraftingState = {
-    inventory: remaining.filter((stack) => stack.quantity > 0),
-    craftedEquipmentIds: [
-      ...state.craftedEquipmentIds,
-      recipe.outputId,
-    ],
-  };
+  const next: Record<string, number> = { ...state.resources };
+  for (const ing of recipe.ingredients) {
+    const left = next[ing.resourceId] - ing.quantity;
+    if (left === 0) delete next[ing.resourceId];
+    else next[ing.resourceId] = left;
+  }
+  const outId = recipe.output.resourceId;
+  next[outId] = (hasOwn(next, outId) ? next[outId] : 0) + recipe.output.quantity;
 
   return {
-    ok: true,
-    state: nextState,
-    outputId: recipe.outputId,
+    state: {
+      resources: next,
+      craftedRecipeIds:
+        recipe.oneShot === true
+          ? [...state.craftedRecipeIds, recipe.id]
+          : state.craftedRecipeIds,
+    },
+    result: { ok: true, recipeId: recipe.id, produced: { ...recipe.output } },
   };
 }
