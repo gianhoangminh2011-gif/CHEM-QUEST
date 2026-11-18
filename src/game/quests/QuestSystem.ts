@@ -61,7 +61,9 @@ function getObjectiveCount(
 ): number {
   switch (type) {
     case 'COLLECT_RESOURCE':
-      return state.collectedResourceIds.length;
+      return state.collectedResourceIds.filter(
+        (id) => id.startsWith('crystal-')
+      ).length;
 
     case 'ANALYZE_SAMPLE':
       return countValidAnalysisResults(state);
