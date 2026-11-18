@@ -1,54 +1,31 @@
 update(_time: number, delta: number) {
   if (!this.player) return;
 
-  const speed = 0.18 * delta;
+  const speed = 0.18 * Math.min(delta, 32);
 
-  let keyboardX = 0;
-  let keyboardY = 0;
+  let dx = 0;
+  let dy = 0;
 
-  // Keyboard input: WASD + Arrow Keys
+  // Keyboard input
   if (this.cursors && this.wasd) {
-    if (this.cursors.left.isDown || this.wasd.left.isDown) {
-      keyboardX -= 1;
-    }
-
-    if (this.cursors.right.isDown || this.wasd.right.isDown) {
-      keyboardX += 1;
-    }
-
-    if (this.cursors.up.isDown || this.wasd.up.isDown) {
-      keyboardY -= 1;
-    }
-
-    if (this.cursors.down.isDown || this.wasd.down.isDown) {
-      keyboardY += 1;
-    }
+    if (this.cursors.left.isDown || this.wasd.left.isDown) dx -= 1;
+    if (this.cursors.right.isDown || this.wasd.right.isDown) dx += 1;
+    if (this.cursors.up.isDown || this.wasd.up.isDown) dy -= 1;
+    if (this.cursors.down.isDown || this.wasd.down.isDown) dy += 1;
   }
 
-  // Normalize keyboard diagonal movement
-  const keyboardLength = Math.sqrt(
-    keyboardX * keyboardX + keyboardY * keyboardY
-  );
-
-  if (keyboardLength > 1) {
-    keyboardX /= keyboardLength;
-    keyboardY /= keyboardLength;
+  // Keyboard takes priority over joystick
+  if (dx === 0 && dy === 0) {
+    dx = this.joystickVector.x;
+    dy = this.joystickVector.y;
   }
 
-  // Joystick input
-  const joyX = this.joystickVector.x;
-  const joyY = this.joystickVector.y;
+  // Normalize movement
+  const length = Math.sqrt(dx * dx + dy * dy);
 
-  // Combine inputs in screen-space
-  let dx = keyboardX + joyX;
-  let dy = keyboardY + joyY;
-
-  // Normalize combined input
-  const inputLength = Math.sqrt(dx * dx + dy * dy);
-
-  if (inputLength > 1) {
-    dx /= inputLength;
-    dy /= inputLength;
+  if (length > 1) {
+    dx /= length;
+    dy /= length;
   }
 
   const currentX = this.player.x;
@@ -57,14 +34,14 @@ update(_time: number, delta: number) {
   const nextX = currentX + dx * speed;
   const nextY = currentY + dy * speed;
 
-  // World boundary and collision checks
+  // Collision and boundary
   if (
     this.isInsideWorld(nextX, nextY) &&
     !this.collidesWithObstacle(nextX, nextY)
   ) {
     this.player.setPosition(nextX, nextY);
   } else {
-    // Allow sliding along walls and obstacles
+    // Horizontal sliding
     if (
       this.isInsideWorld(nextX, currentY) &&
       !this.collidesWithObstacle(nextX, currentY)
@@ -72,6 +49,7 @@ update(_time: number, delta: number) {
       this.player.x = nextX;
     }
 
+    // Vertical sliding
     if (
       this.isInsideWorld(this.player.x, nextY) &&
       !this.collidesWithObstacle(this.player.x, nextY)
@@ -84,7 +62,7 @@ update(_time: number, delta: number) {
 
   this.updateInteractionTarget();
 
-  // Interaction key
+  // Interaction
   if (
     this.interactKey &&
     Phaser.Input.Keyboard.JustDown(this.interactKey)
