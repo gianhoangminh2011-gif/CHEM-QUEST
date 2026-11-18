@@ -1,254 +1,148 @@
 import { describe, expect, it } from 'vitest';
 import {
-  canCraft,
-  craftItem,
-  isValidRecipe,
+  CRAFTING_RECIPES,
+  craft,
+  validateRecipe,
   type CraftingRecipe,
   type CraftingState,
+  type RecipeRegistry,
 } from './CraftingSystem';
 
-const recipe: CraftingRecipe = {
-  id: 'recipe-basic-tool',
-  outputId: 'basic-tool',
+// TEST FIXTURES ONLY — ID trung tính, không phải dữ liệu game/hóa học.
+const makeRecipe = (over: Partial<CraftingRecipe> = {}): CraftingRecipe => ({
+  id: 'test_recipe',
   ingredients: [
-    { ingredientId: 'iron-ore', quantity: 2 },
-    { ingredientId: 'crystal', quantity: 1 },
+    { resourceId: 'test_a', quantity: 2 },
+    { resourceId: 'test_b', quantity: 1 },
   ],
-};
+  output: { resourceId: 'test_out', quantity: 1 },
+  ...over,
+});
+const reg = (r: CraftingRecipe): RecipeRegistry => ({ [r.id]: r });
+const makeState = (
+  resources: Record<string, number>,
+  craftedRecipeIds: string[] = [],
+): CraftingState => ({ resources, craftedRecipeIds });
 
-const initialState: CraftingState = {
-  inventory: [
-    { ingredientId: 'iron-ore', quantity: 5 },
-    { ingredientId: 'crystal', quantity: 2 },
-    { ingredientId: 'wood', quantity: 3 },
-  ],
-  craftedEquipmentIds: [],
-};
-
-describe('CraftingSystem', () => {
-  describe('isValidRecipe', () => {
-    it('accepts a valid recipe', () => {
-      expect(isValidRecipe(recipe)).toBe(true);
-    });
-
-    it('rejects a recipe with no ingredients', () => {
+describe('validateRecipe', () => {
+  it('accepts a valid recipe', () => {
+    expect(validateRecipe(makeRecipe())).toBeNull();
+  });
+  it('rejects empty ids', () => {
+    expect(validateRecipe(makeRecipe({ id: '  ' }))).not.toBeNull();
+    expect(
+      validateRecipe(makeRecipe({ ingredients: [{ resourceId: '', quantity: 1 }] })),
+    ).not.toBeNull();
+    expect(
+      validateRecipe(makeRecipe({ output: { resourceId: '', quantity: 1 } })),
+    ).not.toBeNull();
+  });
+  it('rejects empty ingredient list', () => {
+    expect(validateRecipe(makeRecipe({ ingredients: [] }))).not.toBeNull();
+  });
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects invalid quantity %s',
+    (q) => {
       expect(
-        isValidRecipe({ ...recipe, ingredients: [] })
-      ).toBe(false);
-    });
-
-    it('rejects zero quantity', () => {
+        validateRecipe(makeRecipe({ ingredients: [{ resourceId: 'test_a', quantity: q }] })),
+      ).not.toBeNull();
       expect(
-        isValidRecipe({
-          ...recipe,
-          ingredients: [
-            { ingredientId: 'iron-ore', quantity: 0 },
-          ],
-        })
-      ).toBe(false);
+        validateRecipe(makeRecipe({ output: { resourceId: 'test_out', quantity: q } })),
+      ).not.toBeNull();
+    },
+  );
+  it('rejects duplicate ingredient ids', () => {
+    const r = makeRecipe({
+      ingredients: [
+        { resourceId: 'test_a', quantity: 1 },
+        { resourceId: 'test_a', quantity: 1 },
+      ],
     });
+    expect(validateRecipe(r)).not.toBeNull();
+  });
+});
 
-    it('rejects negative quantity', () => {
-      expect(
-        isValidRecipe({
-          ...recipe,
-          ingredients: [
-            { ingredientId: 'iron-ore', quantity: -1 },
-          ],
-        })
-      ).toBe(false);
-    });
-
-    it('rejects fractional quantity', () => {
-      expect(
-        isValidRecipe({
-          ...recipe,
-          ingredients: [
-            { ingredientId: 'iron-ore', quantity: 1.5 },
-          ],
-        })
-      ).toBe(false);
-    });
-
-    it('rejects duplicate ingredient IDs', () => {
-      expect(
-        isValidRecipe({
-          ...recipe,
-          ingredients: [
-            { ingredientId: 'iron-ore', quantity: 1 },
-            { ingredientId: 'iron-ore', quantity: 2 },
-          ],
-        })
-      ).toBe(false);
-    });
-
-    it('rejects empty ingredient IDs', () => {
-      expect(
-        isValidRecipe({
-          ...recipe,
-          ingredients: [
-            { ingredientId: '', quantity: 1 },
-          ],
-        })
-      ).toBe(false);
-    });
-
-    it('rejects empty recipe ID', () => {
-      expect(
-        isValidRecipe({ ...recipe, id: '' })
-      ).toBe(false);
-    });
-
-    it('rejects empty output ID', () => {
-      expect(
-        isValidRecipe({ ...recipe, outputId: '' })
-      ).toBe(false);
-    });
+describe('craft', () => {
+  it('rejects every recipe when the default registry is empty', () => {
+    expect(Object.keys(CRAFTING_RECIPES)).toHaveLength(0);
+    const out = craft(makeState({ test_a: 9 }), 'test_recipe');
+    expect(out.result).toMatchObject({ ok: false, error: 'UNKNOWN_RECIPE' });
   });
 
-  describe('canCraft', () => {
-    it('allows crafting when ingredients are available', () => {
-      expect(canCraft(initialState, recipe)).toBeNull();
-    });
-
-    it('rejects crafting when ingredients are insufficient', () => {
-      const state: CraftingState = {
-        inventory: [
-          { ingredientId: 'iron-ore', quantity: 1 },
-          { ingredientId: 'crystal', quantity: 1 },
-        ],
-        craftedEquipmentIds: [],
-      };
-
-      expect(canCraft(state, recipe)).toBe(
-        'INSUFFICIENT_INGREDIENTS'
-      );
-    });
-
-    it('rejects crafting an already crafted output', () => {
-      const state: CraftingState = {
-        ...initialState,
-        craftedEquipmentIds: ['basic-tool'],
-      };
-
-      expect(canCraft(state, recipe)).toBe('ALREADY_CRAFTED');
-    });
-
-    it('rejects invalid recipe', () => {
-      const invalidRecipe: CraftingRecipe = {
-        ...recipe,
-        ingredients: [],
-      };
-
-      expect(canCraft(initialState, invalidRecipe)).toBe(
-        'INVALID_RECIPE'
-      );
-    });
+  it('rejects prototype keys as unknown recipes', () => {
+    const out = craft(makeState({}), 'toString', reg(makeRecipe()));
+    expect(out.result).toMatchObject({ ok: false, error: 'UNKNOWN_RECIPE' });
   });
 
-  describe('craftItem', () => {
-    it('consumes required ingredients', () => {
-      const result = craftItem(initialState, recipe);
+  it('rejects an invalid recipe in the registry', () => {
+    const bad = makeRecipe({ ingredients: [] });
+    const out = craft(makeState({ test_a: 9 }), bad.id, reg(bad));
+    expect(out.result).toMatchObject({ ok: false, error: 'INVALID_RECIPE' });
+  });
 
-      expect(result.ok).toBe(true);
+  it('rejects when an ingredient is missing or short', () => {
+    const r = makeRecipe();
+    const missing = craft(makeState({ test_a: 2 }), r.id, reg(r));
+    expect(missing.result).toMatchObject({ ok: false, error: 'INSUFFICIENT_INGREDIENTS' });
+    const short = craft(makeState({ test_a: 1, test_b: 1 }), r.id, reg(r));
+    expect(short.result).toMatchObject({ ok: false, error: 'INSUFFICIENT_INGREDIENTS' });
+  });
 
-      if (!result.ok) return;
-
-      expect(result.state.inventory).toEqual([
-        { ingredientId: 'iron-ore', quantity: 3 },
-        { ingredientId: 'crystal', quantity: 1 },
-        { ingredientId: 'wood', quantity: 3 },
-      ]);
+  it('crafts successfully, consumes ingredients and adds output', () => {
+    const r = makeRecipe();
+    const out = craft(makeState({ test_a: 5, test_b: 1, test_unused: 7 }), r.id, reg(r));
+    expect(out.result).toEqual({
+      ok: true,
+      recipeId: 'test_recipe',
+      produced: { resourceId: 'test_out', quantity: 1 },
     });
+    expect(out.state.resources).toEqual({ test_a: 3, test_unused: 7, test_out: 1 });
+  });
 
-    it('adds crafted output', () => {
-      const result = craftItem(initialState, recipe);
+  it('preserves unused resources and stacks existing output', () => {
+    const r = makeRecipe();
+    const out = craft(makeState({ test_a: 2, test_b: 1, test_out: 4, test_x: 1 }), r.id, reg(r));
+    expect(out.state.resources).toEqual({ test_out: 5, test_x: 1 });
+  });
 
-      expect(result.ok).toBe(true);
+  it('prevents duplicate crafting of a oneShot recipe', () => {
+    const r = makeRecipe({ oneShot: true });
+    const first = craft(makeState({ test_a: 4, test_b: 2 }), r.id, reg(r));
+    expect(first.result.ok).toBe(true);
+    expect(first.state.craftedRecipeIds).toEqual(['test_recipe']);
+    const second = craft(first.state, r.id, reg(r));
+    expect(second.result).toMatchObject({ ok: false, error: 'ALREADY_CRAFTED' });
+    expect(second.state).toBe(first.state);
+  });
 
-      if (!result.ok) return;
+  it('allows repeating a non-oneShot recipe', () => {
+    const r = makeRecipe();
+    const first = craft(makeState({ test_a: 4, test_b: 2 }), r.id, reg(r));
+    const second = craft(first.state, r.id, reg(r));
+    expect(second.result.ok).toBe(true);
+    expect(second.state.resources).toEqual({ test_out: 2 });
+  });
 
-      expect(result.outputId).toBe('basic-tool');
-      expect(result.state.craftedEquipmentIds).toContain(
-        'basic-tool'
-      );
-    });
+  it('does not mutate the input state', () => {
+    const r = makeRecipe({ oneShot: true });
+    const resources = Object.freeze({ test_a: 2, test_b: 1 });
+    const crafted = Object.freeze<string[]>([]);
+    const input: CraftingState = Object.freeze({ resources, craftedRecipeIds: crafted });
+    const snapshot = structuredClone(input);
+    const out = craft(input, r.id, reg(r));
+    expect(out.result.ok).toBe(true);
+    expect(input).toEqual(snapshot);
+    expect(out.state).not.toBe(input);
+    expect(out.state.resources).not.toBe(resources);
+  });
 
-    it('preserves unused materials', () => {
-      const result = craftItem(initialState, recipe);
-
-      expect(result.ok).toBe(true);
-
-      if (!result.ok) return;
-
-      expect(
-        result.state.inventory.find(
-          (item) => item.ingredientId === 'wood'
-        )?.quantity
-      ).toBe(3);
-    });
-
-    it('does not mutate original state', () => {
-      const originalInventory = structuredClone(
-        initialState.inventory
-      );
-
-      craftItem(initialState, recipe);
-
-      expect(initialState.inventory).toEqual(originalInventory);
-      expect(initialState.craftedEquipmentIds).toEqual([]);
-    });
-
-    it('does not consume materials on failure', () => {
-      const poorState: CraftingState = {
-        inventory: [
-          { ingredientId: 'iron-ore', quantity: 1 },
-          { ingredientId: 'crystal', quantity: 0 },
-        ],
-        craftedEquipmentIds: [],
-      };
-
-      const result = craftItem(poorState, recipe);
-
-      expect(result.ok).toBe(false);
-      expect(poorState.inventory).toEqual([
-        { ingredientId: 'iron-ore', quantity: 1 },
-        { ingredientId: 'crystal', quantity: 0 },
-      ]);
-    });
-
-    it('prevents duplicate crafting', () => {
-      const firstResult = craftItem(initialState, recipe);
-
-      expect(firstResult.ok).toBe(true);
-
-      if (!firstResult.ok) return;
-
-      const secondResult = craftItem(
-        firstResult.state,
-        recipe
-      );
-
-      expect(secondResult.ok).toBe(false);
-
-      if (secondResult.ok) return;
-
-      expect(secondResult.error).toBe('ALREADY_CRAFTED');
-    });
-
-    it('returns error for invalid recipe', () => {
-      const invalidRecipe: CraftingRecipe = {
-        ...recipe,
-        ingredients: [],
-      };
-
-      const result = craftItem(initialState, invalidRecipe);
-
-      expect(result.ok).toBe(false);
-
-      if (result.ok) return;
-
-      expect(result.error).toBe('INVALID_RECIPE');
-    });
+  it('is atomic on failure: state is returned unchanged', () => {
+    const r = makeRecipe();
+    const input = makeState({ test_a: 2 });
+    const snapshot = structuredClone(input);
+    const out = craft(input, r.id, reg(r));
+    expect(out.result.ok).toBe(false);
+    expect(out.state).toBe(input);
+    expect(input).toEqual(snapshot);
   });
 });
