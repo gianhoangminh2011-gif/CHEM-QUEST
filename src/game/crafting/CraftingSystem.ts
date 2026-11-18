@@ -1,3 +1,4 @@
+
 /**
  * Crafting Core — pure system, independent from Phaser/React.
  * Recipe registry remains empty pending PD-approved game data.
@@ -197,6 +198,7 @@ export function craft(
   recipeId: string,
   registry: RecipeRegistry = CRAFTING_RECIPES,
 ): CraftingOutcome {
+  // Validate state before attempting to craft.
   const inventoryError = validateInventory(state);
 
   if (inventoryError !== null) {
@@ -221,6 +223,15 @@ export function craft(
   }
 
   const recipe = registry[recipeId];
+
+  // Prevent registry key / recipe identity mismatch.
+  if (!recipe || recipe.id !== recipeId) {
+    return fail(
+      state,
+      'INVALID_RECIPE',
+      'Recipe registry key must match recipe.id.',
+    );
+  }
 
   const invalid = validateRecipe(recipe);
 
@@ -254,6 +265,7 @@ export function craft(
     }
   }
 
+  // Work on a fresh copy to preserve input immutability.
   const next: Record<string, number> = {
     ...state.resources,
   };
@@ -279,6 +291,7 @@ export function craft(
   const totalOutput =
     currentOutput + recipe.output.quantity;
 
+  // Prevent unsafe numeric inventory state.
   if (!Number.isSafeInteger(totalOutput)) {
     return fail(
       state,
