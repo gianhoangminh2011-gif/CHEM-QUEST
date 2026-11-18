@@ -1,7 +1,6 @@
 /**
- * Crafting Core — DRAFT (chưa đối chiếu với file thực trên nhánh).
- * Hàm thuần: không mutate input, không phụ thuộc Phaser/React/Inventory thật.
- * Registry rỗng có chủ đích: chờ dữ liệu recipe được PD duyệt.
+ * Crafting Core — pure system, independent from Phaser/React.
+ * Recipe registry remains empty pending PD-approved game data.
  */
 
 export type ResourceCounts = Readonly<Record<string, number>>;
@@ -15,7 +14,6 @@ export interface CraftingRecipe {
   readonly id: string;
   readonly ingredients: readonly CraftingIngredient[];
   readonly output: CraftingIngredient;
-  /** true: recipe chỉ craft được một lần (duplicate-crafting prevention). */
   readonly oneShot?: boolean;
 }
 
@@ -29,6 +27,7 @@ export interface CraftingState {
 export type CraftingErrorCode =
   | 'UNKNOWN_RECIPE'
   | 'INVALID_RECIPE'
+  | 'INVALID_INVENTORY'
   | 'INSUFFICIENT_INGREDIENTS'
   | 'ALREADY_CRAFTED';
 
@@ -49,46 +48,130 @@ export interface CraftingOutcome {
   readonly result: CraftingResult;
 }
 
-/** Chưa có dữ liệu recipe được duyệt. */
+/** No approved recipe data yet. */
 export const CRAFTING_RECIPES: RecipeRegistry = Object.freeze({});
 
 function hasOwn(obj: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(obj, key);
 }
 
-function isNonEmptyId(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
+function isCanonicalId(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.trim() === value
+  );
 }
 
-function isPositiveInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+function isPositiveSafeInteger(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isSafeInteger(value) &&
+    value > 0
+  );
 }
 
-/** Trả về thông báo lỗi nếu recipe không hợp lệ, hoặc null nếu hợp lệ. */
-export function validateRecipe(recipe: CraftingRecipe): string | null {
-  if (!isNonEmptyId(recipe.id)) return 'Recipe id must be a non-empty string.';
-  if (!Array.isArray(recipe.ingredients) || recipe.ingredients.length === 0) {
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isSafeInteger(value) &&
+    value >= 0
+  );
+}
+
+/** Returns an error message when a recipe is invalid, otherwise null. */
+export function validateRecipe(
+  recipe: CraftingRecipe,
+): string | null {
+  if (!recipe || !isCanonicalId(recipe.id)) {
+    return 'Recipe id must be a non-empty, trimmed string.';
+  }
+
+  if (
+    !Array.isArray(recipe.ingredients) ||
+    recipe.ingredients.length === 0
+  ) {
     return 'Recipe must have at least one ingredient.';
   }
+
   const seen = new Set<string>();
+
   for (const ing of recipe.ingredients) {
-    if (!isNonEmptyId(ing.resourceId)) {
-      return 'Ingredient resourceId must be a non-empty string.';
+    if (!ing || !isCanonicalId(ing.resourceId)) {
+      return 'Ingredient resourceId must be a non-empty, trimmed string.';
     }
-    if (!isPositiveInteger(ing.quantity)) {
-      return `Ingredient "${ing.resourceId}" quantity must be a positive integer.`;
+
+    if (!isPositiveSafeInteger(ing.quantity)) {
+      return `Ingredient "${ing.resourceId}" quantity must be a positive safe integer.`;
     }
+
     if (seen.has(ing.resourceId)) {
       return `Duplicate ingredient id "${ing.resourceId}".`;
     }
+
     seen.add(ing.resourceId);
   }
-  if (!recipe.output || !isNonEmptyId(recipe.output.resourceId)) {
-    return 'Output resourceId must be a non-empty string.';
+
+  if (
+    !recipe.output ||
+    !isCanonicalId(recipe.output.resourceId)
+  ) {
+    return 'Output resourceId must be a non-empty, trimmed string.';
   }
-  if (!isPositiveInteger(recipe.output.quantity)) {
-    return 'Output quantity must be a positive integer.';
+
+  if (!isPositiveSafeInteger(recipe.output.quantity)) {
+    return 'Output quantity must be a positive safe integer.';
   }
+
+  if (
+    recipe.oneShot !== undefined &&
+    typeof recipe.oneShot !== 'boolean'
+  ) {
+    return 'oneShot must be a boolean when provided.';
+  }
+
+  return null;
+}
+
+function validateInventory(
+  state: CraftingState,
+): string | null {
+  if (
+    !state ||
+    typeof state !== 'object' ||
+    !state.resources ||
+    typeof state.resources !== 'object' ||
+    Array.isArray(state.resources)
+  ) {
+    return 'Resources must be a valid resource-count object.';
+  }
+
+  for (const [resourceId, quantity] of Object.entries(
+    state.resources,
+  )) {
+    if (!isCanonicalId(resourceId)) {
+      return 'Inventory resource IDs must be non-empty and trimmed.';
+    }
+
+    if (!isNonNegativeSafeInteger(quantity)) {
+      return `Inventory quantity for "${resourceId}" must be a non-negative safe integer.`;
+    }
+  }
+
+  if (!Array.isArray(state.craftedRecipeIds)) {
+    return 'craftedRecipeIds must be an array.';
+  }
+
+  const seen = new Set<string>();
+
+  for (const id of state.craftedRecipeIds) {
+    if (!isCanonicalId(id) || seen.has(id)) {
+      return 'craftedRecipeIds must contain unique, non-empty, trimmed IDs.';
+    }
+
+    seen.add(id);
+  }
+
   return null;
 }
 
@@ -97,34 +180,72 @@ function fail(
   error: CraftingErrorCode,
   message: string,
 ): CraftingOutcome {
-  // Thất bại: trả lại đúng state cũ (atomic, không thay đổi gì).
-  return { state, result: { ok: false, error, message } };
+  // Failed operations preserve the original state reference.
+  return {
+    state,
+    result: {
+      ok: false,
+      error,
+      message,
+    },
+  };
 }
 
-/** Craft một lần. Không mutate `state`; thất bại thì state giữ nguyên. */
+/** Crafts once. Inputs are not mutated; failures return original state. */
 export function craft(
   state: CraftingState,
   recipeId: string,
   registry: RecipeRegistry = CRAFTING_RECIPES,
 ): CraftingOutcome {
-  if (!isNonEmptyId(recipeId) || !hasOwn(registry, recipeId)) {
-    return fail(state, 'UNKNOWN_RECIPE', `Unknown recipe "${String(recipeId)}".`);
+  const inventoryError = validateInventory(state);
+
+  if (inventoryError !== null) {
+    return fail(
+      state,
+      'INVALID_INVENTORY',
+      inventoryError,
+    );
   }
+
+  if (
+    !isCanonicalId(recipeId) ||
+    !registry ||
+    typeof registry !== 'object' ||
+    !hasOwn(registry, recipeId)
+  ) {
+    return fail(
+      state,
+      'UNKNOWN_RECIPE',
+      `Unknown recipe "${String(recipeId)}".`,
+    );
+  }
+
   const recipe = registry[recipeId];
 
   const invalid = validateRecipe(recipe);
-  if (invalid !== null) return fail(state, 'INVALID_RECIPE', invalid);
 
-  if (recipe.oneShot === true && state.craftedRecipeIds.includes(recipe.id)) {
-    return fail(state, 'ALREADY_CRAFTED', `Recipe "${recipe.id}" was already crafted.`);
+  if (invalid !== null) {
+    return fail(state, 'INVALID_RECIPE', invalid);
   }
 
-  // Kiểm tra toàn bộ nguyên liệu TRƯỚC khi thay đổi bất cứ thứ gì.
+  if (
+    recipe.oneShot === true &&
+    state.craftedRecipeIds.includes(recipe.id)
+  ) {
+    return fail(
+      state,
+      'ALREADY_CRAFTED',
+      `Recipe "${recipe.id}" was already crafted.`,
+    );
+  }
+
+  // Check all ingredients before changing anything.
   for (const ing of recipe.ingredients) {
     const have = hasOwn(state.resources, ing.resourceId)
       ? state.resources[ing.resourceId]
       : 0;
-    if (!(have >= ing.quantity)) {
+
+    if (have < ing.quantity) {
       return fail(
         state,
         'INSUFFICIENT_INGREDIENTS',
@@ -133,14 +254,40 @@ export function craft(
     }
   }
 
-  const next: Record<string, number> = { ...state.resources };
+  const next: Record<string, number> = {
+    ...state.resources,
+  };
+
+  // Consume ingredients.
   for (const ing of recipe.ingredients) {
     const left = next[ing.resourceId] - ing.quantity;
-    if (left === 0) delete next[ing.resourceId];
-    else next[ing.resourceId] = left;
+
+    if (left === 0) {
+      delete next[ing.resourceId];
+    } else {
+      next[ing.resourceId] = left;
+    }
   }
+
+  // Add output safely, including output matching an ingredient.
   const outId = recipe.output.resourceId;
-  next[outId] = (hasOwn(next, outId) ? next[outId] : 0) + recipe.output.quantity;
+
+  const currentOutput = hasOwn(next, outId)
+    ? next[outId]
+    : 0;
+
+  const totalOutput =
+    currentOutput + recipe.output.quantity;
+
+  if (!Number.isSafeInteger(totalOutput)) {
+    return fail(
+      state,
+      'INVALID_RECIPE',
+      'Crafting output exceeds the safe integer limit.',
+    );
+  }
+
+  next[outId] = totalOutput;
 
   return {
     state: {
@@ -150,6 +297,10 @@ export function craft(
           ? [...state.craftedRecipeIds, recipe.id]
           : state.craftedRecipeIds,
     },
-    result: { ok: true, recipeId: recipe.id, produced: { ...recipe.output } },
+    result: {
+      ok: true,
+      recipeId: recipe.id,
+      produced: { ...recipe.output },
+    },
   };
 }
