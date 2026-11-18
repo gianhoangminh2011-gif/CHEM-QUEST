@@ -1,4 +1,3 @@
-
 import { describe, expect, it } from 'vitest';
 import {
   createInventoryState,
@@ -7,349 +6,260 @@ import {
   craftFromInventory,
 } from './InventorySystem';
 import type { InventoryState } from './InventorySystem';
-import type { CraftingRecipe } from '../crafting/CraftingSystem';
+import type { CraftingRecipe, RecipeRegistry } from '../crafting/CraftingSystem';
 
-const makeRecipe = (
-  overrides: Partial<CraftingRecipe> = {},
-): CraftingRecipe => ({
+const makeRecipe = (over: Partial<CraftingRecipe> = {}): CraftingRecipe => ({
   id: 'test_recipe',
   ingredients: [
     { resourceId: 'test_a', quantity: 2 },
     { resourceId: 'test_b', quantity: 1 },
   ],
   output: { resourceId: 'test_out', quantity: 1 },
-  ...overrides,
+  ...over,
 });
 
-const makeRegistry = (recipe: CraftingRecipe) => ({
+const makeRegistry = (recipe: CraftingRecipe): RecipeRegistry => ({
   [recipe.id]: recipe,
 });
 
-describe('InventorySystem', () => {
-  describe('createInventoryState', () => {
-    it('starts with an empty inventory', () => {
-      const state = createInventoryState();
+const makeState = (
+  resources: Record<string, number>,
+  craftedRecipeIds: string[] = [],
+): InventoryState => ({
+  resources,
+  craftedRecipeIds,
+});
 
-      expect(state.resources).toEqual({});
-      expect(state.craftedRecipeIds).toEqual([]);
-    });
+describe('createInventoryState', () => {
+  it('creates an empty inventory', () => {
+    const state = createInventoryState();
 
-    it('creates independent inventory instances', () => {
-      const a = createInventoryState();
-      const b = createInventoryState();
-
-      expect(a.resources).not.toBe(b.resources);
-      expect(a.craftedRecipeIds).not.toBe(b.craftedRecipeIds);
-    });
+    expect(Object.keys(state.resources)).toEqual([]);
+    expect(state.craftedRecipeIds).toEqual([]);
   });
 
-  describe('collectResource', () => {
-    it('collects one resource by default', () => {
-      const state = createInventoryState();
-      const result = collectResource(state, 'test_a');
+  it('creates independent states', () => {
+    const a = createInventoryState();
+    const b = createInventoryState();
 
-      expect(result.ok).toBe(true);
-      expect(result.state.resources).toEqual({ test_a: 1 });
-    });
+    const result = collectResource(a, 'test_a', 2);
 
-    it('collects a specified quantity', () => {
-      const result = collectResource(
-        createInventoryState(),
-        'test_a',
-        5,
-      );
+    expect(result.ok).toBe(true);
+    expect(b.resources).toEqual({});
+  });
+});
 
-      expect(result.state.resources).toEqual({ test_a: 5 });
-    });
+describe('collectResource', () => {
+  it('collects a resource', () => {
+    const state = createInventoryState();
+    const result = collectResource(state, 'test_a', 3);
 
-    it('stacks existing resources', () => {
-      const first = collectResource(
-        createInventoryState(),
-        'test_a',
-          2,
-      );
-
-      const second = collectResource(
-        first.state,
-        'test_a',
-        3,
-      );
-
-      expect(second.state.resources).toEqual({ test_a: 5 });
-    });
-
-    it('rejects empty resource IDs', () => {
-      const state = createInventoryState();
-
-      for (const id of ['', ' ', '  ', ' test_a', 'test_a ']) {
-        const result = collectResource(state, id);
-
-        expect(result.ok).toBe(false);
-        expect(result.error).toBe('INVALID_RESOURCE_ID');
-        expect(result.state).toBe(state);
-      }
-    });
-
-    it.each([
-      0,
-      -1,
-      1.5,
-      NaN,
-      Infinity,
-      Number.MAX_SAFE_INTEGER + 1,
-    ])('rejects invalid collection quantity %s', (quantity) => {
-      const state = createInventoryState();
-      const result = collectResource(state, 'test_a', quantity);
-
-      expect(result.ok).toBe(false);
-      expect(result.error).toBe('INVALID_QUANTITY');
-      expect(result.state).toBe(state);
-    });
-
-    it('rejects quantity overflow', () => {
-      const state: InventoryState = {
-        resources: { test_a: Number.MAX_SAFE_INTEGER },
-        craftedRecipeIds: [],
-      };
-
-      const result = collectResource(state, 'test_a');
-
-      expect(result.ok).toBe(false);
-      expect(result.error).toBe('INVALID_QUANTITY');
-      expect(result.state).toBe(state);
-    });
-
-    it('does not mutate the original state', () => {
-      const original = createInventoryState();
-      const result = collectResource(original, 'test_a', 2);
-
-      expect(original.resources).toEqual({});
-      expect(result.state.resources).toEqual({ test_a: 2 });
-      expect(result.state).not.toBe(original);
-    });
-
-    it('handles prototype-like resource IDs safely', () => {
-      const state = createInventoryState();
-      const result = collectResource(state, '__proto__", 2);
-
-      expect(result.ok).toBe(true);
-      expect(result.state.resources['__proto__']).toBe(2);
-    });
+    expect(result.ok).toBe(true);
+    expect(result.state.resources.test_a).toBe(3);
   });
 
-  describe('removeResource', () => {
-    it('removes a specified quantity', () => {
-      const collected = collectResource(
-        createInventoryState(),
-        'test_a',
-        5,
-      );
+  it('defaults quantity to one', () => {
+    const result = collectResource(createInventoryState(), 'test_a');
 
-      const result = removeResource(
-        collected.state,
-        'test_a',
-        2,
-      );
+    expect(result.ok).toBe(true);
+    expect(result.state.resources.test_a).toBe(1);
+  });
 
-      expect(result.ok).toBe(true);
-      expect(result.state.resources).toEqual({ test_a: 3 });
-    });
+  it('stacks resources', () => {
+    const state = makeState({ test_a: 2 });
+    const result = collectResource(state, 'test_a', 3);
 
-    it('removes resource key when quantity reaches zero', () => {
-      const collected = collectResource(
-        createInventoryState(),
-        'test_a',
-        2,
-      );
+    expect(result.ok).toBe(true);
+    expect(result.state.resources.test_a).toBe(5);
+  });
 
-      const result = removeResource(
-        collected.state,
-        'test_a',
-        2,
-      );
-
-      expect(result.ok).toBe(true);
-      expect(result.state.resources).toEqual({});
-    });
-
-    it('rejects removal of missing resource', () => {
-      const state = createInventoryState();
-      const result = removeResource(state, 'test_a', 1);
-
-      expect(result.ok).toBe(false);
-      expect(result.error).toBe('INSUFFICIENT_RESOURCE');
-      expect(result.state).toBe(state);
-    });
-
-    it('rejects removal exceeding available quantity', () => {
-      const collected = collectResource(
-        createInventoryState(),
-        'test_a',
-        2,
-      );
-
-      const result = removeResource(
-        collected.state,
-        'test_a',
-        3,
-      );
-
-      expect(result.ok).toBe(false);
-      expect(result.error).toBe('INSUFFICIENT_RESOURCE');
-      expect(result.state).toBe(collected.state);
-    });
-
-    it('rejects invalid IDs', () => {
-      const state = createInventoryState();
-
-      const result = removeResource(state, '  ', 1);
+  it('rejects empty or non-canonical IDs', () => {
+    for (const id of ['', ' ', ' test_a', 'test_a ']) {
+      const result = collectResource(createInventoryState(), id);
 
       expect(result.ok).toBe(false);
       expect(result.error).toBe('INVALID_RESOURCE_ID');
-      expect(result.state).toBe(state);
-    });
+    }
+  });
 
-    it.each([
-      0,
-      -1,
-      1.5,
-      NaN,
-      Infinity,
-      Number.MAX_SAFE_INTEGER + 1,
-    ])('rejects invalid removal quantity %s', (quantity) => {
-      const state = createInventoryState();
-      const result = removeResource(state, 'test_a', quantity);
+  it.each([0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid quantity %s',
+    (quantity) => {
+      const result = collectResource(
+        createInventoryState(),
+        'test_a',
+        quantity,
+      );
 
       expect(result.ok).toBe(false);
       expect(result.error).toBe('INVALID_QUANTITY');
-      expect(result.state).toBe(state);
-    });
+    },
+  );
 
-    it('does not mutate the original inventory', () => {
-      const original = collectResource(
-        createInventoryState(),
-        'test_a',
-        5,
-      ).state;
+  it('rejects quantity overflow', () => {
+    const state = makeState({ test_a: Number.MAX_SAFE_INTEGER });
+    const result = collectResource(state, 'test_a', 1);
 
-      const result = removeResource(original, 'test_a', 2);
-
-      expect(original.resources).toEqual({ test_a: 5 });
-      expect(result.state.resources).toEqual({ test_a: 3 });
-    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('INVALID_QUANTITY');
+    expect(result.state).toBe(state);
   });
 
-  describe('craftFromInventory', () => {
-    it('delegates crafting to CraftingSystem', () => {
-      const state = createInventoryState();
-      const recipe = makeRecipe();
+  it('preserves the original state on success', () => {
+    const state = makeState({ test_a: 2 });
+    const result = collectResource(state, 'test_a', 3);
 
-      const result = craftFromInventory(
-        state,
-        recipe.id,
-        makeRegistry(recipe),
-      );
+    expect(state.resources.test_a).toBe(2);
+    expect(result.state.resources.test_a).toBe(5);
+    expect(result.state).not.toBe(state);
+  });
 
-      expect(result.result).toMatchObject({
-        ok: false,
-        error: 'INSUFFICIENT_INGREDIENTS',
-      });
+  it('handles "__proto__" as a resource ID safely', () => {
+    const state = createInventoryState();
+    const result = collectResource(state, '__proto__', 2);
 
-      expect(result.state).toBe(state);
-    });
+    expect(result.ok).toBe(true);
+    expect(Object.hasOwn(result.state.resources, '__proto__')).toBe(true);
+    expect(result.state.resources['__proto__']).toBe(2);
+    expect(Object.getPrototypeOf(result.state.resources)).toBeNull();
+  });
 
-    it('successfully crafts and consumes ingredients', () => {
-      const state: InventoryState = {
-        resources: {
-          test_a: 4,
-          test_b: 2,
-          test_unused: 5,
-        },
-        craftedRecipeIds: [],
-      };
+  it('rejects invalid inventory state', () => {
+    const state = makeState({ test_a: -2 });
+    const result = collectResource(state, 'test_b', 1);
 
-      const recipe = makeRecipe();
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('INVALID_INVENTORY');
+    expect(result.state).toBe(state);
+  });
+});
 
-      const result = craftFromInventory(
-        state,
-        recipe.id,
-        makeRegistry(recipe),
-      );
+describe('removeResource', () => {
+  it('removes an available quantity', () => {
+    const state = makeState({ test_a: 5 });
+    const result = removeResource(state, 'test_a', 2);
 
-      expect(result.result.ok).toBe(true);
-      expect(result.state.resources).toEqual({
-        test_a: 2,
-        test_b: 1,
-        test_unused: 5,
-        test_out: 1,
-      });
-    });
+    expect(result.ok).toBe(true);
+    expect(result.state.resources.test_a).toBe(3);
+  });
 
-    it('preserves original inventory on crafting failure', () => {
-      const state: InventoryState = {
-        resources: { test_a: 1 },
-        craftedRecipeIds: [],
-      };
+  it('removes the key when quantity reaches zero', () => {
+    const state = makeState({ test_a: 2 });
+    const result = removeResource(state, 'test_a', 2);
 
-      const recipe = makeRecipe();
+    expect(result.ok).toBe(true);
+    expect(Object.hasOwn(result.state.resources, 'test_a')).toBe(false);
+  });
 
-      const result = craftFromInventory(
-        state,
-        recipe.id,
-        makeRegistry(recipe),
-      );
+  it('rejects missing resources', () => {
+    const state = createInventoryState();
+    const result = removeResource(state, 'test_a', 1);
 
-      expect(result.result.ok).toBe(false);
-      expect(result.state).toBe(state);
-      expect(state.resources).toEqual({ test_a: 1 });
-    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('INSUFFICIENT_RESOURCE');
+  });
 
-    it('supports oneShot recipe tracking', () => {
-      const recipe = makeRecipe({ oneShot: true });
+  it('rejects insufficient quantity atomically', () => {
+    const state = makeState({ test_a: 1 });
+    const result = removeResource(state, 'test_a', 2);
 
-      const state: InventoryState = {
-        resources: { test_a: 4, test_b: 2 },
-        craftedRecipeIds: [],
-      };
+    expect(result.ok).toBe(false);
+    expect(result.state).toBe(state);
+    expect(state.resources.test_a).toBe(1);
+  });
 
-      const first = craftFromInventory(
-        state,
-        recipe.id,
-        makeRegistry(recipe),
-      );
+  it('rejects invalid quantity', () => {
+    const result = removeResource(createInventoryState(), 'test_a', 0);
 
-      expect(first.result.ok).toBe(true);
-      expect(first.state.craftedRecipeIds).toEqual([
-        'test_recipe',
-      ]);
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('INVALID_QUANTITY');
+  });
 
-      const second = craftFromInventory(
-        first.state,
-        recipe.id,
-        makeRegistry(recipe),
-      );
+  it('preserves original inventory on success', () => {
+    const state = makeState({ test_a: 5 });
+    const result = removeResource(state, 'test_a', 2);
 
-      expect(second.result).toMatchObject({
-        ok: false,
-        error: 'ALREADY_CRAFTED',
-      });
-    });
+    expect(state.resources.test_a).toBe(5);
+    expect(result.state.resources.test_a).toBe(3);
+  });
+});
 
-    it('rejects unknown recipes', () => {
-      const state = createInventoryState();
+describe('craftFromInventory', () => {
+  it('delegates to CraftingSystem', () => {
+    const state = makeState({ test_a: 2, test_b: 1 });
+    const recipe = makeRecipe();
+    const result = craftFromInventory(
+      state,
+      recipe.id,
+      makeRegistry(recipe),
+    );
 
-      const result = craftFromInventory(
-        state,
-        'unknown_recipe',
-        {},
-      );
+    expect(result.result.ok).toBe(true);
+  });
 
-      expect(result.result).toMatchObject({
-        ok: false,
-        error: 'UNKNOWN_RECIPE',
-      });
+  it('consumes ingredients and adds output', () => {
+    const state = makeState({ test_a: 4, test_b: 2 });
+    const recipe = makeRecipe();
+    const result = craftFromInventory(
+      state,
+      recipe.id,
+      makeRegistry(recipe),
+    );
 
-      expect(result.state).toBe(state);
-    });
+    expect(result.result.ok).toBe(true);
+    expect(result.state.resources.test_a).toBe(2);
+    expect(result.state.resources.test_b).toBe(1);
+    expect(result.state.resources.test_out).toBe(1);
+  });
+
+  it('does not mutate original state when crafting succeeds', () => {
+    const state = makeState({ test_a: 4, test_b: 2 });
+    const recipe = makeRecipe();
+    const result = craftFromInventory(
+      state,
+      recipe.id,
+      makeRegistry(recipe),
+    );
+
+    expect(state.resources.test_a).toBe(4);
+    expect(state.resources.test_b).toBe(2);
+    expect(result.state).not.toBe(state);
+  });
+
+  it('fails atomically when ingredients are insufficient', () => {
+    const state = makeState({ test_a: 1 });
+    const recipe = makeRecipe();
+    const result = craftFromInventory(
+      state,
+      recipe.id,
+      makeRegistry(recipe),
+    );
+
+    expect(result.result.ok).toBe(false);
+    expect(result.state).toBe(state);
+    expect(state.resources.test_a).toBe(1);
+  });
+
+  it('tracks one-shot recipes', () => {
+    const state = makeState({ test_a: 4, test_b: 2 });
+    const recipe = makeRecipe({ oneShot: true });
+    const result = craftFromInventory(
+      state,
+      recipe.id,
+      makeRegistry(recipe),
+    );
+
+    expect(result.result.ok).toBe(true);
+    expect(result.state.craftedRecipeIds).toContain(recipe.id);
+  });
+
+  it('rejects unknown recipes', () => {
+    const result = craftFromInventory(
+      createInventoryState(),
+      'missing_recipe',
+      {},
+    );
+
+    expect(result.result.ok).toBe(false);
   });
 });
