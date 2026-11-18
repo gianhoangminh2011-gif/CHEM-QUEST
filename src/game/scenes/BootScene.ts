@@ -1,72 +1,41 @@
-update(_time: number, delta: number) {
-  if (!this.player) return;
+import Phaser from 'phaser';
 
-  const speed = 0.18 * Math.min(delta, 32);
-
-  let dx = 0;
-  let dy = 0;
-
-  // Keyboard input
-  if (this.cursors && this.wasd) {
-    if (this.cursors.left.isDown || this.wasd.left.isDown) dx -= 1;
-    if (this.cursors.right.isDown || this.wasd.right.isDown) dx += 1;
-    if (this.cursors.up.isDown || this.wasd.up.isDown) dy -= 1;
-    if (this.cursors.down.isDown || this.wasd.down.isDown) dy += 1;
-  }
-
-  // Keyboard takes priority over joystick
-  if (dx === 0 && dy === 0) {
-    dx = this.joystickVector.x;
-    dy = this.joystickVector.y;
-  }
-
-  // Normalize movement
-  const length = Math.sqrt(dx * dx + dy * dy);
-
-  if (length > 1) {
-    dx /= length;
-    dy /= length;
-  }
-
-  const currentX = this.player.x;
-  const currentY = this.player.y;
-
-  const nextX = currentX + dx * speed;
-  const nextY = currentY + dy * speed;
-
-  // Collision and boundary
-  if (
-    this.isInsideWorld(nextX, nextY) &&
-    !this.collidesWithObstacle(nextX, nextY)
-  ) {
-    this.player.setPosition(nextX, nextY);
-  } else {
-    // Horizontal sliding
-    if (
-      this.isInsideWorld(nextX, currentY) &&
-      !this.collidesWithObstacle(nextX, currentY)
-    ) {
-      this.player.x = nextX;
+export default class BootScene extends Phaser.Scene {
+    constructor() {
+        key: 'BootScene'
     }
 
-    // Vertical sliding
-    if (
-      this.isInsideWorld(this.player.x, nextY) &&
-      !this.collidesWithObstacle(this.player.x, nextY)
-    ) {
-      this.player.y = nextY;
+    preload() {
+        // Load các tài nguyên game của bạn ở đây...
     }
-  }
 
-  this.player.setDepth(this.player.y);
+    create() {
+        // 1. Chặn trình duyệt cuộn trang khi bấm phím mũi tên hoặc WASD trên laptop
+        if (this.input.keyboard) {
+            this.input.keyboard.addCapture('UP, DOWN, LEFT, RIGHT, W, A, S, D');
+        }
 
-  this.updateInteractionTarget();
+        // 2. Ép canvas luôn nhận focus khi người dùng click chuột/chạm touchpad trên laptop
+        this.input.on('pointerdown', () => {
+            if (this.game.canvas) {
+                this.game.canvas.focus();
+            }
+        });
 
-  // Interaction
-  if (
-    this.interactKey &&
-    Phaser.Input.Keyboard.JustDown(this.interactKey)
-  ) {
-    this.interactNearbyObject();
-  }
+        // Tự động focus ngay khi Scene được tạo
+        if (this.game.canvas) {
+            this.game.canvas.focus();
+        }
+
+        // 3. Chống kẹt phím (key sticking) khi người dùng Alt+Tab ra ngoài màn hình
+        window.addEventListener('blur', () => {
+            // Gửi sự kiện hoặc reset trạng thái bàn phím toàn cục nếu cần
+            if (this.input.keyboard) {
+                this.input.keyboard.resetKeys();
+            }
+        });
+
+        // Chuyển sang Scene tiếp theo (ví dụ: GameScene)
+        this.scene.start('GameScene');
+    }
 }
