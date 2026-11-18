@@ -1,4 +1,3 @@
-
 import {
   craft,
   type CraftingState,
@@ -13,6 +12,7 @@ export interface InventoryState extends CraftingState {}
 export type InventoryError =
   | 'INVALID_RESOURCE_ID'
   | 'INVALID_QUANTITY'
+  | 'INVALID_INVENTORY'
   | 'INSUFFICIENT_RESOURCE';
 
 export interface InventoryTransition {
@@ -21,11 +21,8 @@ export interface InventoryTransition {
   readonly error?: InventoryError;
 }
 
-export function createInventoryState(): InventoryState {
-  return {
-    resources: Object.create(null) as Record<string, number>,
-    craftedRecipeIds: [],
-  };
+function hasOwn(obj: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key);
 }
 
 function isValidId(id: unknown): id is string {
@@ -44,36 +41,113 @@ function isValidQuantity(quantity: unknown): quantity is number {
   );
 }
 
+function isValidCount(quantity: unknown): boolean {
+  return (
+    typeof quantity === 'number' &&
+    Number.isSafeInteger(quantity) &&
+    quantity >= 0
+  );
+}
+
+/** Creates a null-prototype map safe for IDs such as "__proto__". */
+function createResourceMap(
+  source?: InventoryCounts,
+): Record<string, number> {
+  const result = Object.create(null) as Record<string, number>;
+
+  if (source) {
+    for (const [id, quantity] of Object.entries(source)) {
+      Object.defineProperty(result, id, {
+        value: quantity,
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
+    }
+  }
+
+  return result;
+}
+
+function validateInventory(state: InventoryState): boolean {
+  if (
+    !state ||
+    typeof state !== 'object' ||
+    !state.resources ||
+    typeof state.resources !== 'object' ||
+    Array.isArray(state.resources) ||
+    !Array.isArray(state.craftedRecipeIds)
+  ) {
+    return false;
+  }
+
+  for (const [id, quantity] of Object.entries(state.resources)) {
+    if (!isValidId(id) || !isValidCount(quantity)) {
+      return false;
+    }
+  }
+
+  const seen = new Set<string>();
+
+  for (const id of state.craftedRecipeIds) {
+    if (!isValidId(id) || seen.has(id)) {
+      return false;
+    }
+
+    seen.add(id);
+  }
+
+  return true;
+}
+
+function fail(
+  state: InventoryState,
+  error: InventoryError,
+): InventoryTransition {
+  return { state, ok: false, error };
+}
+
+export function createInventoryState(): InventoryState {
+  return {
+    resources: createResourceMap(),
+    craftedRecipeIds: [],
+  };
+}
+
 export function collectResource(
   state: InventoryState,
   resourceId: string,
   quantity = 1,
 ): InventoryTransition {
   if (!isValidId(resourceId)) {
-    return { state, ok: false, error: 'INVALID_RESOURCE_ID' };
+    return fail(state, 'INVALID_RESOURCE_ID');
   }
 
   if (!isValidQuantity(quantity)) {
-    return { state, ok: false, error: 'INVALID_QUANTITY' };
+    return fail(state, 'INVALID_QUANTITY');
   }
 
-  const current = Object.hasOwn(state.resources, resourceId)
+  if (!validateInventory(state)) {
+    return fail(state, 'INVALID_INVENTORY');
+  }
+
+  const current = hasOwn(state.resources, resourceId)
     ? state.resources[resourceId]
     : 0;
 
   const total = current + quantity;
 
   if (!Number.isSafeInteger(total)) {
-    return { state, ok: false, error: 'INVALID_QUANTITY' };
+    return fail(state, 'INVALID_QUANTITY');
   }
+
+  const nextResources = createResourceMap(state.resources);
+  nextResources[resourceId] = total;
 
   return {
     state: {
       ...state,
-      resources: {
-        ...state.resources,
-        [resourceId]: total,
-      },
+      resources: nextResources,
     },
     ok: true,
   };
@@ -85,25 +159,26 @@ export function removeResource(
   quantity: number,
 ): InventoryTransition {
   if (!isValidId(resourceId)) {
-    return { state, ok: false, error: 'INVALID_RESOURCE_ID' };
+    return fail(state, 'INVALID_RESOURCE_ID');
   }
 
   if (!isValidQuantity(quantity)) {
-    return { state, ok: false, error: 'INVALID_QUANTITY' };
+    return fail(state, 'INVALID_QUANTITY');
   }
 
-  const current = Object.hasOwn(state.resources, resourceId)
+  if (!validateInventory(state)) {
+    return fail(state, 'INVALID_INVENTORY');
+  }
+
+  const current = hasOwn(state.resources, resourceId)
     ? state.resources[resourceId]
     : 0;
 
   if (current < quantity) {
-    return { state, ok: false, error: 'INSUFFICIENT_RESOURCE' };
+    return fail(state, 'INSUFFICIENT_RESOURCE');
   }
 
-  const nextResources: Record<string, number> = {
-    ...state.resources,
-  };
-
+  const nextResources = createResourceMap(state.resources);
   const remaining = current - quantity;
 
   if (remaining === 0) {
