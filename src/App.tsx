@@ -19,6 +19,10 @@ import {
   type RuntimeInventoryState,
 } from './game/inventory/RuntimeInventorySystem';
 import {
+  loadRuntimeInventory,
+  saveRuntimeInventory,
+} from './game/inventory/RuntimeInventorySaveService';
+import {
   isAnalysed,
   type AnalysisResult,
   type ChemistryBridge,
@@ -26,66 +30,6 @@ import {
 } from './game/chemistry/ChemistrySystem';
 
 type Panel = 'quest' | 'codex' | 'bag' | 'lab';
-
-const INVENTORY_SAVE_KEY = 'chem-quest:runtime-inventory-save';
-const INVENTORY_SAVE_VERSION = 1;
-
-function loadRuntimeInventorySave(): RuntimeInventoryState | null {
-  try {
-    const raw = localStorage.getItem(INVENTORY_SAVE_KEY);
-    if (!raw) return null;
-
-    const parsed: unknown = JSON.parse(raw);
-
-    if (
-      typeof parsed !== 'object' ||
-      parsed === null ||
-      !('version' in parsed) ||
-      parsed.version !== INVENTORY_SAVE_VERSION ||
-      !('resources' in parsed) ||
-      typeof parsed.resources !== 'object' ||
-      parsed.resources === null ||
-      Array.isArray(parsed.resources)
-    ) {
-      return null;
-    }
-
-    const resources: Record<string, number> = Object.create(null);
-
-    for (const [resourceId, quantity] of Object.entries(parsed.resources)) {
-      if (
-        !resourceId.startsWith('crystal-') ||
-        resourceId.trim() !== resourceId ||
-        !Number.isSafeInteger(quantity) ||
-        (quantity as number) <= 0
-      ) {
-        return null;
-      }
-
-      resources[resourceId] = quantity as number;
-    }
-
-    return { resources };
-  } catch {
-    return null;
-  }
-}
-
-function saveRuntimeInventorySave(
-  inventory: RuntimeInventoryState
-): void {
-  try {
-    localStorage.setItem(
-      INVENTORY_SAVE_KEY,
-      JSON.stringify({
-        version: INVENTORY_SAVE_VERSION,
-        resources: inventory.resources,
-      })
-    );
-  } catch {
-    // Keep the game usable if browser storage is unavailable.
-  }
-}
 
 function App() {
   const [activePanel, setActivePanel] = useState<Panel>('quest');
@@ -133,7 +77,7 @@ function App() {
       return;
     }
 
-    const savedInventory = loadRuntimeInventorySave();
+    const savedInventory = loadRuntimeInventory();
 
     if (savedInventory) {
       setRuntimeInventory(savedInventory);
@@ -208,7 +152,7 @@ function App() {
   useEffect(() => {
     if (!hasHydratedRuntimeInventory) return;
 
-    saveRuntimeInventorySave(runtimeInventory);
+    saveRuntimeInventory(runtimeInventory);
   }, [runtimeInventory, hasHydratedRuntimeInventory]);
 
   const crystalCount = gameplayState.collectedResourceIds.length;
