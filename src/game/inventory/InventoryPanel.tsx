@@ -30,7 +30,14 @@ function InventoryPanel({
   };
 
   return (
-    <section className="inventory-panel">
+    <section
+      className="inventory-panel"
+      style={{
+        width: '100%',
+        minWidth: 0,
+        overflow: 'visible',
+      }}
+    >
       <h3>Resource Inventory</h3>
 
       <p className="info-description">
@@ -47,49 +54,50 @@ function InventoryPanel({
             <div
               key={resourceId}
               style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '12px',
+                display: 'block',
+                width: '100%',
+                minWidth: 0,
                 padding: '12px',
                 marginTop: '10px',
-                border: '1px solid rgba(213, 184, 120, 0.35)',
+                border: '1px solid #d5b878',
                 borderRadius: '8px',
-                background: 'rgba(255, 255, 255, 0.03)',
+                background: '#20352a',
+                boxSizing: 'border-box',
               }}
             >
-              <div
+              <strong
                 style={{
-                  flex: '1 1 110px',
-                  minWidth: 0,
+                  display: 'block',
                   overflowWrap: 'anywhere',
+                  color: '#f0d99d',
                 }}
               >
-                <strong>{resourceId}</strong>
+                {resourceId}
+              </strong>
 
-                <p style={{ margin: '5px 0 0' }}>
-                  Quantity: {quantity}
-                </p>
-              </div>
+              <p style={{ margin: '6px 0 12px' }}>
+                Quantity: {quantity}
+              </p>
 
               <button
                 type="button"
                 disabled={quantity <= 0}
                 onClick={() => handleRemove(resourceId)}
                 style={{
-                  flex: '0 0 auto',
-                  minHeight: '40px',
-                  padding: '8px 14px',
-                  border: '1px solid #d5b878',
-                  borderRadius: '6px',
+                  display: 'block',
+                  width: '100%',
+                  minHeight: '44px',
+                  padding: '10px',
                   background: '#d5b878',
                   color: '#192820',
-                  font: 'inherit',
-                  fontSize: '12px',
-                  fontWeight: 700,
+                  border: '1px solid #d5b878',
+                  borderRadius: '6px',
+                  fontFamily: 'inherit',
+                  fontSize: '13px',
+                  fontWeight: 800,
                   cursor: quantity > 0 ? 'pointer' : 'not-allowed',
                   opacity: quantity > 0 ? 1 : 0.5,
+                  boxSizing: 'border-box',
                 }}
               >
                 Remove 1
