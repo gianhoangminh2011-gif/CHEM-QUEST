@@ -1,5 +1,10 @@
 
-import { useCallback, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import PhaserGame from './game/PhaserGame';
 import LabPanel from './game/LabPanel';
 import {
@@ -12,6 +17,10 @@ import {
 } from './game/quests/QuestSystem';
 import { getElementRecordsForResources } from './game/elements/ElementCatalog';
 import { buildGameplayInventory } from './game/inventory/GameplayInventory';
+import {
+  collectResource,
+  type InventoryState,
+} from './game/inventory/InventorySystem';
 import InventoryPanel from './game/inventory/InventoryPanel';
 import {
   isAnalysed,
@@ -28,6 +37,54 @@ function App() {
     useState<GameplayState>(createGameplayState);
   const [chemistryBridge, setChemistryBridge] =
     useState<ChemistryBridge | null>(null);
+
+  const [inventoryState, setInventoryState] =
+    useState<InventoryState>(() =>
+      buildGameplayInventory(gameplayState.collectedResourceIds)
+    );
+
+  const processedResourceIdsRef = useRef(
+    new Set(gameplayState.collectedResourceIds)
+  );
+
+  useEffect(() => {
+    const newResourceIds = gameplayState.collectedResourceIds.filter(
+      (id) => !processedResourceIdsRef.current.has(id)
+    );
+
+    if (newResourceIds.length === 0) {
+      return;
+    }
+
+    newResourceIds.forEach((id) => {
+      processedResourceIdsRef.current.add(id);
+    });
+
+    setInventoryState((currentInventory) => {
+      let nextInventory = currentInventory;
+
+      for (const resourceId of newResourceIds) {
+        if (!resourceId.startsWith('crystal-')) {
+          continue;
+        }
+
+        const result = collectResource(nextInventory, resourceId);
+
+        if (result.ok) {
+          nextInventory = result.state;
+        }
+      }
+
+      return nextInventory;
+    });
+  }, [gameplayState.collectedResourceIds]);
+
+  const handleInventoryChange = useCallback(
+    (nextInventory: InventoryState) => {
+      setInventoryState(nextInventory);
+    },
+    []
+  );
 
   const handleGameplayStateChange = useCallback(
     (nextState: GameplayState) => {
@@ -86,14 +143,6 @@ function App() {
 
   const unmappedResourceCount =
     crystalCount - elementRecords.length;
-
-  const inventoryState = useMemo(
-    () =>
-      buildGameplayInventory(
-        gameplayState.collectedResourceIds
-      ),
-    [gameplayState.collectedResourceIds]
-  );
 
   return (
     <main className="app">
@@ -291,7 +340,8 @@ function App() {
 
           {activePanel === 'bag' && (
             <InventoryPanel
-              resources={inventoryState.resources}
+              inventory={inventoryState}
+              onInventoryChange={handleInventoryChange}
               elements={elementRecords}
               researchSamples={researchSamples}
             />
