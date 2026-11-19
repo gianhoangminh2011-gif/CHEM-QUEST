@@ -1,22 +1,30 @@
+
 import { useState } from 'react';
 import type { ElementRecord } from '../elements/ElementCatalog';
 import type { ResearchSample } from '../chemistry/ChemistrySystem';
+import {
+  removeResource,
+  type InventoryState,
+} from './InventorySystem';
 
 interface InventoryPanelProps {
-  resources: Readonly<Record<string, number>>;
+  inventory: InventoryState;
+  onInventoryChange: (next: InventoryState) => void;
   elements: readonly ElementRecord[];
   researchSamples: readonly ResearchSample[];
 }
 
 export default function InventoryPanel({
-  resources,
+  inventory,
+  onInventoryChange,
   elements,
   researchSamples,
 }: InventoryPanelProps) {
   const [selectedResourceId, setSelectedResourceId] =
     useState<string | null>(null);
+  const [message, setMessage] = useState('');
 
-  const entries = Object.entries(resources);
+  const entries = Object.entries(inventory.resources);
 
   const totalResources = entries.reduce(
     (sum, [, quantity]) => sum + quantity,
@@ -33,6 +41,30 @@ export default function InventoryPanel({
       )
     : undefined;
 
+  function handleRemoveResource() {
+    if (!selectedEntry) return;
+
+    const [resourceId] = selectedEntry;
+
+    const result = removeResource(
+      inventory,
+      resourceId,
+      1
+    );
+
+    if (!result.ok) {
+      setMessage(`Remove failed: ${result.error}`);
+      return;
+    }
+
+    onInventoryChange(result.state);
+    setMessage('Removed 1 resource.');
+
+    if (result.state.resources[resourceId] === undefined) {
+      setSelectedResourceId(null);
+    }
+  }
+
   return (
     <>
       <div className="quest-icon">▣</div>
@@ -40,12 +72,11 @@ export default function InventoryPanel({
       <h3>Explorer's Bag</h3>
 
       <p className="info-description">
-        Select a collected resource to inspect its information.
+        Select a collected resource to inspect and manage it.
       </p>
 
       <div className="quest-objective">
         <span>RESOURCE SUMMARY</span>
-
         <p>RESOURCE TYPES: {entries.length}</p>
         <p>TOTAL RESOURCES: {totalResources}</p>
         <p>RESEARCH SAMPLES: {researchSamples.length}</p>
@@ -69,7 +100,10 @@ export default function InventoryPanel({
             <button
               key={resourceId}
               type="button"
-              onClick={() => setSelectedResourceId(resourceId)}
+              onClick={() => {
+                setSelectedResourceId(resourceId);
+                setMessage('');
+              }}
               aria-pressed={selected}
               style={{
                 display: 'block',
@@ -91,7 +125,6 @@ export default function InventoryPanel({
               <strong>
                 {element?.name ?? 'Unidentified Crystal'}
               </strong>
-
               <p>Quantity: ×{quantity}</p>
               <p>{resourceId}</p>
             </button>
@@ -113,7 +146,6 @@ export default function InventoryPanel({
                 {selectedElement?.name ?? 'Unidentified Crystal'}
               </strong>
             </p>
-
             <p>RESOURCE ID: {selectedEntry[0]}</p>
             <p>QUANTITY: {selectedEntry[1]}</p>
 
@@ -132,8 +164,25 @@ export default function InventoryPanel({
             ) : (
               <p>Catalog information is not available.</p>
             )}
+
+            <button
+              type="button"
+              onClick={handleRemoveResource}
+            >
+              Remove 1
+            </button>
           </>
         )}
+
+        {message && <p role="status">{message}</p>}
+      </div>
+
+      <div className="quest-objective">
+        <span>CRAFTING</span>
+        <p>No approved crafting recipes are available yet.</p>
+        <button type="button" disabled>
+          Crafting unavailable
+        </button>
       </div>
 
       <div className="quest-objective">
@@ -145,9 +194,7 @@ export default function InventoryPanel({
 
         {researchSamples.map((sample) => (
           <div key={sample.id}>
-            <p>
-              <strong>{sample.displayName}</strong>
-            </p>
+            <p><strong>{sample.displayName}</strong></p>
             <p>STATUS: COLLECTED</p>
             <p>SAMPLE ID: {sample.id}</p>
           </div>
