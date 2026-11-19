@@ -32,6 +32,7 @@ function InventoryPanel({
   return (
     <section className="inventory-panel">
       <h3>Resource Inventory</h3>
+
       <p className="info-description">
         Manage your collected resources.
       </p>
@@ -47,18 +48,27 @@ function InventoryPanel({
               key={resourceId}
               style={{
                 display: 'flex',
+                flexWrap: 'wrap',
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 gap: '12px',
-                padding: '10px',
-                marginTop: '8px',
-                border: '1px solid #777',
+                padding: '12px',
+                marginTop: '10px',
+                border: '1px solid rgba(213, 184, 120, 0.35)',
                 borderRadius: '8px',
+                background: 'rgba(255, 255, 255, 0.03)',
               }}
             >
-              <div>
+              <div
+                style={{
+                  flex: '1 1 110px',
+                  minWidth: 0,
+                  overflowWrap: 'anywhere',
+                }}
+              >
                 <strong>{resourceId}</strong>
-                <p style={{ margin: '4px 0' }}>
+
+                <p style={{ margin: '5px 0 0' }}>
                   Quantity: {quantity}
                 </p>
               </div>
@@ -68,10 +78,18 @@ function InventoryPanel({
                 disabled={quantity <= 0}
                 onClick={() => handleRemove(resourceId)}
                 style={{
-                  padding: '8px 12px',
-                  cursor: 'pointer',
+                  flex: '0 0 auto',
+                  minHeight: '40px',
+                  padding: '8px 14px',
+                  border: '1px solid #d5b878',
                   borderRadius: '6px',
-                  border: '1px solid #999',
+                  background: '#d5b878',
+                  color: '#192820',
+                  font: 'inherit',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: quantity > 0 ? 'pointer' : 'not-allowed',
+                  opacity: quantity > 0 ? 1 : 0.5,
                 }}
               >
                 Remove 1
@@ -84,6 +102,7 @@ function InventoryPanel({
       <div className="quest-objective">
         <strong>CRAFTING</strong>
         <p>No approved crafting recipes are available yet.</p>
+
         <button type="button" disabled>
           Crafting unavailable
         </button>
@@ -91,6 +110,7 @@ function InventoryPanel({
 
       <div className="quest-objective">
         <strong>ELEMENT RECORDS · {elements.length}</strong>
+
         {elements.map((element) => (
           <div key={element.id}>
             <p>
@@ -104,6 +124,7 @@ function InventoryPanel({
 
       <div className="quest-objective">
         <strong>RESEARCH SAMPLES · {researchSamples.length}</strong>
+
         {researchSamples.map((sample) => (
           <p key={sample.id}>{sample.id}</p>
         ))}
