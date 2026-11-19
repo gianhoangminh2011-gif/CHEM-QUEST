@@ -1,3 +1,4 @@
+
 import { useCallback, useMemo, useState } from 'react';
 import PhaserGame from './game/PhaserGame';
 import LabPanel from './game/LabPanel';
@@ -11,6 +12,7 @@ import {
 } from './game/quests/QuestSystem';
 import { getElementRecordsForResources } from './game/elements/ElementCatalog';
 import { buildGameplayInventory } from './game/inventory/GameplayInventory';
+import InventoryPanel from './game/inventory/InventoryPanel';
 import {
   isAnalysed,
   type AnalysisResult,
@@ -91,15 +93,6 @@ function App() {
         gameplayState.collectedResourceIds
       ),
     [gameplayState.collectedResourceIds]
-  );
-
-  const inventoryEntries = Object.entries(
-    inventoryState.resources
-  );
-
-  const inventoryItemCount = inventoryEntries.reduce(
-    (sum, [, quantity]) => sum + quantity,
-    0
   );
 
   return (
@@ -297,57 +290,11 @@ function App() {
           )}
 
           {activePanel === 'bag' && (
-            <>
-              <div className="quest-icon">▣</div>
-              <h3>Explorer's Bag</h3>
-              <p className="info-description">
-                Resources collected during your journey.
-              </p>
-
-              <div className="quest-objective">
-                <span>COLLECTED RESOURCES · {inventoryItemCount}</span>
-
-                {inventoryEntries.length === 0 && (
-                  <p>Your inventory is empty.</p>
-                )}
-
-                {inventoryEntries.map(([resourceId, quantity]) => {
-                  const element = elementRecords.find(
-                    (record) => record.resourceId === resourceId
-                  );
-
-                  return (
-                    <div key={resourceId}>
-                      <p>
-                        <strong>
-                          {element?.name ?? 'Unidentified Crystal'}
-                        </strong>
-                        {' '}× {quantity}
-                      </p>
-                      <p>RESOURCE ID: {resourceId}</p>
-                      <p>STATUS: UNIDENTIFIED</p>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="quest-objective">
-                <span>
-                  RESEARCH SAMPLES · {researchSamples.length}
-                </span>
-
-                {researchSamples.length === 0 && (
-                  <p>No research samples collected.</p>
-                )}
-
-                {researchSamples.map((sample) => (
-                  <div key={sample.id}>
-                    <p>{sample.displayName}</p>
-                    <p>STATUS: COLLECTED</p>
-                  </div>
-                ))}
-              </div>
-            </>
+            <InventoryPanel
+              resources={inventoryState.resources}
+              elements={elementRecords}
+              researchSamples={researchSamples}
+            />
           )}
 
           {activePanel === 'lab' && (
