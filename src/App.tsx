@@ -19,7 +19,6 @@ import {
   type RuntimeInventoryState,
 } from './game/inventory/RuntimeInventorySystem';
 import {
-  RUNTIME_INVENTORY_SAVE_KEY,
   loadRuntimeInventory,
   saveRuntimeInventory,
 } from './game/inventory/RuntimeInventorySaveService';
