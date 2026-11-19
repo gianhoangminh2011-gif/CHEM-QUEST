@@ -1,5 +1,5 @@
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import PhaserGame from './game/PhaserGame';
 import LabPanel from './game/LabPanel';
 import {
@@ -12,7 +12,12 @@ import {
   getQuestProgress,
 } from './game/quests/QuestSystem';
 import { getElementRecordsForResources } from './game/elements/ElementCatalog';
-import { getInventorySnapshot } from './game/inventory/InventorySystem';
+import RuntimeInventoryPanel from './game/inventory/RuntimeInventoryPanel';
+import {
+  collectRuntimeResource,
+  createRuntimeInventory,
+  type RuntimeInventoryState,
+} from './game/inventory/RuntimeInventorySystem';
 import {
   isAnalysed,
   type AnalysisResult,
@@ -34,6 +39,11 @@ function App() {
   const [chemistryBridge, setChemistryBridge] =
     useState<ChemistryBridge | null>(null);
 
+  const [runtimeInventory, setRuntimeInventory] =
+    useState<RuntimeInventoryState>(createRuntimeInventory);
+
+  const processedCrystalIds = useRef(new Set<string>());
+
   const handleGameplayStateChange = useCallback(
     (nextState: GameplayState) => {
       setGameplayState(nextState);
@@ -54,7 +64,41 @@ function App() {
     saveGameplayState(gameplayState);
   }, [gameplayState, hasReceivedGameplayState]);
 
-  const inventory = getInventorySnapshot(gameplayState);
+  useEffect(() => {
+    let nextInventory = runtimeInventory;
+    let changed = false;
+
+    const currentCrystalIds = new Set(
+      gameplayState.collectedResourceIds
+    );
+
+    for (const processedId of processedCrystalIds.current) {
+      if (!currentCrystalIds.has(processedId)) {
+        processedCrystalIds.current.delete(processedId);
+      }
+    }
+
+    for (const resourceId of gameplayState.collectedResourceIds) {
+      if (
+        !resourceId.startsWith('crystal-') ||
+        processedCrystalIds.current.has(resourceId)
+      ) {
+        continue;
+      }
+
+      const result = collectRuntimeResource(nextInventory, resourceId);
+
+      if (result.ok) {
+        nextInventory = result.state;
+        processedCrystalIds.current.add(resourceId);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      setRuntimeInventory(nextInventory);
+    }
+  }, [gameplayState.collectedResourceIds, runtimeInventory]);
 
   const crystalCount = gameplayState.collectedResourceIds.length;
 
@@ -293,61 +337,12 @@ function App() {
           )}
 
           {activePanel === 'bag' && (
-            <>
-              <div className="quest-icon">▣</div>
-              <h3>Explorer's Bag</h3>
-              <p className="info-description">
-                Resources and research samples collected during your journey.
-              </p>
-
-              <div className="quest-objective">
-                <span>
-                  RESOURCES · {inventory.totalResourceQuantity}
-                </span>
-
-                {inventory.resources.length === 0 ? (
-                  <p>Your inventory is empty.</p>
-                ) : (
-                  inventory.resources.map((resource) => (
-                    <div key={resource.id}>
-                      <p>
-                        <strong>
-                          {resource.element?.symbol ?? '?'}
-                        </strong>
-                        {' · '}
-                        {resource.element?.name ?? resource.id}
-                      </p>
-                      <p>QUANTITY: {resource.quantity}</p>
-                      <p>
-                        STATUS:{' '}
-                        {resource.element?.identificationStatus.toUpperCase()
-                          ?? 'UNCATALOGUED'}
-                      </p>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <div className="quest-objective">
-                <span>
-                  RESEARCH SAMPLES · {inventory.totalResearchSamples}
-                </span>
-
-                {inventory.researchSamples.length === 0 ? (
-                  <p>No research samples collected yet.</p>
-                ) : (
-                  inventory.researchSamples.map((sample) => (
-                    <div key={sample.id}>
-                      <p><strong>{sample.displayName}</strong></p>
-                      <p>Source: {sample.sourceId}</p>
-                      <p>
-                        STATUS: {sample.analysed ? 'ANALYSED' : 'NOT ANALYSED'}
-                      </p>
-                    </div>
-                  ))
-                )}
-              </div>
-            </>
+            <RuntimeInventoryPanel
+              inventory={runtimeInventory}
+              onInventoryChange={setRuntimeInventory}
+              elements={elementRecords}
+              researchSamples={researchSamples}
+            />
           )}
 
           {activePanel === 'lab' && (
