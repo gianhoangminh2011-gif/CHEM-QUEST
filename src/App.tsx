@@ -1,5 +1,4 @@
-
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import PhaserGame from './game/PhaserGame';
 import LabPanel from './game/LabPanel';
 import {
@@ -11,6 +10,7 @@ import {
   getQuestProgress,
 } from './game/quests/QuestSystem';
 import { getElementRecordsForResources } from './game/elements/ElementCatalog';
+import { buildGameplayInventory } from './game/inventory/GameplayInventory';
 import {
   isAnalysed,
   type AnalysisResult,
@@ -84,6 +84,23 @@ function App() {
 
   const unmappedResourceCount =
     crystalCount - elementRecords.length;
+
+  const inventoryState = useMemo(
+    () =>
+      buildGameplayInventory(
+        gameplayState.collectedResourceIds
+      ),
+    [gameplayState.collectedResourceIds]
+  );
+
+  const inventoryEntries = Object.entries(
+    inventoryState.resources
+  );
+
+  const inventoryItemCount = inventoryEntries.reduce(
+    (sum, [, quantity]) => sum + quantity,
+    0
+  );
 
   return (
     <main className="app">
@@ -288,12 +305,47 @@ function App() {
               </p>
 
               <div className="quest-objective">
-                <span>COLLECTED RESOURCES</span>
-                <p>
-                  {crystalCount === 0
-                    ? 'Your inventory is empty.'
-                    : `${crystalCount} crystal resource(s) collected.`}
-                </p>
+                <span>COLLECTED RESOURCES · {inventoryItemCount}</span>
+
+                {inventoryEntries.length === 0 && (
+                  <p>Your inventory is empty.</p>
+                )}
+
+                {inventoryEntries.map(([resourceId, quantity]) => {
+                  const element = elementRecords.find(
+                    (record) => record.resourceId === resourceId
+                  );
+
+                  return (
+                    <div key={resourceId}>
+                      <p>
+                        <strong>
+                          {element?.name ?? 'Unidentified Crystal'}
+                        </strong>
+                        {' '}× {quantity}
+                      </p>
+                      <p>RESOURCE ID: {resourceId}</p>
+                      <p>STATUS: UNIDENTIFIED</p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="quest-objective">
+                <span>
+                  RESEARCH SAMPLES · {researchSamples.length}
+                </span>
+
+                {researchSamples.length === 0 && (
+                  <p>No research samples collected.</p>
+                )}
+
+                {researchSamples.map((sample) => (
+                  <div key={sample.id}>
+                    <p>{sample.displayName}</p>
+                    <p>STATUS: COLLECTED</p>
+                  </div>
+                ))}
               </div>
             </>
           )}
