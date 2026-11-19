@@ -529,7 +529,7 @@ export default class BootScene extends Phaser.Scene {
     });
   }
 
-  private createEnvironment()  {
+  private createEnvironment() {
     this.addTree(280, 250, 1.1);
     this.addTree(410, 180, 0.85);
     this.addTree(650, 180, 1);
@@ -890,6 +890,16 @@ export default class BootScene extends Phaser.Scene {
       this.gameplayState = transition.state;
       target.used = true;
       target.object.destroy();
+
+      // FIX: Remove the collected outcrop from collision detection.
+      const obstacleIndex = this.obstacles.findIndex(
+        (obstacle) =>
+          obstacle.x === target.x && obstacle.y === target.y
+      );
+
+      if (obstacleIndex !== -1) {
+        this.obstacles.splice(obstacleIndex, 1);
+      }
 
       this.showInteractionFeedback(
         'MINERAL SAMPLE COLLECTED'
