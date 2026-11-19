@@ -8,6 +8,7 @@ import {
   isAnalysed,
   type ResearchSample,
 } from '../chemistry/ChemistrySystem';
+import type { RuntimeInventoryState } from './RuntimeInventorySystem';
 
 export interface ResourceInventoryEntry {
   id: string;
@@ -34,46 +35,39 @@ export interface InventorySnapshot {
 }
 
 /**
- * Builds a read-only inventory projection from GameplayState.
- * Does not mutate gameplay state or introduce save fields.
+ * RuntimeInventoryState is the canonical source for consumable resources.
+ * GameplayState remains the source for research samples and analysis.
+ * Historical collectedResourceIds are not used to rebuild current stock.
  */
 export function getInventorySnapshot(
-  state: GameplayState
+  state: GameplayState,
+  runtimeInventory: RuntimeInventoryState
 ): InventorySnapshot {
-  const resourceCounts = new Map<string, number>();
-
-  for (const resourceId of state.collectedResourceIds) {
-    if (
-      typeof resourceId !== 'string' ||
-      resourceId.trim().length === 0
-    ) {
-      continue;
-    }
-
-    resourceCounts.set(
-      resourceId,
-      (resourceCounts.get(resourceId) ?? 0) + 1
-    );
-  }
+  const resourceEntries = Object.entries(runtimeInventory.resources)
+    .filter(
+      ([id, quantity]) =>
+        typeof id === 'string' &&
+        id.trim() === id &&
+        Number.isSafeInteger(quantity) &&
+        quantity > 0
+    )
+    .sort(([a], [b]) => a.localeCompare(b));
 
   const elementRecords = getElementRecordsForResources(
-    [...resourceCounts.keys()]
+    resourceEntries.map(([id]) => id)
   );
 
   const elementByResourceId = new Map(
-    elementRecords.map((element) => [
-      element.resourceId,
-      element,
-    ])
+    elementRecords.map((element) => [element.resourceId, element])
   );
 
-  const resources: ResourceInventoryEntry[] = [
-    ...resourceCounts.entries(),
-  ].map(([id, quantity]) => ({
-    id,
-    quantity,
-    element: elementByResourceId.get(id) ?? null,
-  }));
+  const resources: ResourceInventoryEntry[] = resourceEntries.map(
+    ([id, quantity]) => ({
+      id,
+      quantity,
+      element: elementByResourceId.get(id) ?? null,
+    })
+  );
 
   const researchSamples: ResearchInventoryEntry[] =
     Object.keys(state.researchSamplesById)
