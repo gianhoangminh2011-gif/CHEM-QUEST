@@ -27,6 +27,66 @@ import {
 
 type Panel = 'quest' | 'codex' | 'bag' | 'lab';
 
+const INVENTORY_SAVE_KEY = 'chem-quest:runtime-inventory-save';
+const INVENTORY_SAVE_VERSION = 1;
+
+function loadRuntimeInventorySave(): RuntimeInventoryState | null {
+  try {
+    const raw = localStorage.getItem(INVENTORY_SAVE_KEY);
+    if (!raw) return null;
+
+    const parsed: unknown = JSON.parse(raw);
+
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      !('version' in parsed) ||
+      parsed.version !== INVENTORY_SAVE_VERSION ||
+      !('resources' in parsed) ||
+      typeof parsed.resources !== 'object' ||
+      parsed.resources === null ||
+      Array.isArray(parsed.resources)
+    ) {
+      return null;
+    }
+
+    const resources: Record<string, number> = Object.create(null);
+
+    for (const [resourceId, quantity] of Object.entries(parsed.resources)) {
+      if (
+        !resourceId.startsWith('crystal-') ||
+        resourceId.trim() !== resourceId ||
+        !Number.isSafeInteger(quantity) ||
+        (quantity as number) <= 0
+      ) {
+        return null;
+      }
+
+      resources[resourceId] = quantity as number;
+    }
+
+    return { resources };
+  } catch {
+    return null;
+  }
+}
+
+function saveRuntimeInventorySave(
+  inventory: RuntimeInventoryState
+): void {
+  try {
+    localStorage.setItem(
+      INVENTORY_SAVE_KEY,
+      JSON.stringify({
+        version: INVENTORY_SAVE_VERSION,
+        resources: inventory.resources,
+      })
+    );
+  } catch {
+    // Keep the game usable if browser storage is unavailable.
+  }
+}
+
 function App() {
   const [activePanel, setActivePanel] = useState<Panel>('quest');
 
@@ -41,6 +101,9 @@ function App() {
 
   const [runtimeInventory, setRuntimeInventory] =
     useState<RuntimeInventoryState>(createRuntimeInventory);
+
+  const [hasHydratedRuntimeInventory, setHasHydratedRuntimeInventory] =
+    useState(false);
 
   const processedCrystalIds = useRef(new Set<string>());
 
@@ -64,19 +127,56 @@ function App() {
     saveGameplayState(gameplayState);
   }, [gameplayState, hasReceivedGameplayState]);
 
+  // Restore inventory once the game has loaded its gameplay state.
   useEffect(() => {
-    let nextInventory = runtimeInventory;
-    let changed = false;
+    if (!hasReceivedGameplayState || hasHydratedRuntimeInventory) {
+      return;
+    }
 
-    const currentCrystalIds = new Set(
-      gameplayState.collectedResourceIds
-    );
+    const savedInventory = loadRuntimeInventorySave();
 
-    for (const processedId of processedCrystalIds.current) {
-      if (!currentCrystalIds.has(processedId)) {
-        processedCrystalIds.current.delete(processedId);
+    if (savedInventory) {
+      setRuntimeInventory(savedInventory);
+    } else {
+      let initialInventory = createRuntimeInventory();
+
+      for (const resourceId of gameplayState.collectedResourceIds) {
+        if (!resourceId.startsWith('crystal-')) continue;
+
+        const result = collectRuntimeResource(
+          initialInventory,
+          resourceId
+        );
+
+        if (result.ok) {
+          initialInventory = result.state;
+        }
+      }
+
+      setRuntimeInventory(initialInventory);
+    }
+
+    // Existing collected IDs have already been accounted for.
+    // Do not add them again after restoring or removing inventory items.
+    for (const resourceId of gameplayState.collectedResourceIds) {
+      if (resourceId.startsWith('crystal-')) {
+        processedCrystalIds.current.add(resourceId);
       }
     }
+
+    setHasHydratedRuntimeInventory(true);
+  }, [
+    hasReceivedGameplayState,
+    hasHydratedRuntimeInventory,
+    gameplayState.collectedResourceIds,
+  ]);
+
+  // Add only newly collected crystals after the initial restore.
+  useEffect(() => {
+    if (!hasHydratedRuntimeInventory) return;
+
+    let nextInventory = runtimeInventory;
+    let changed = false;
 
     for (const resourceId of gameplayState.collectedResourceIds) {
       if (
@@ -98,7 +198,18 @@ function App() {
     if (changed) {
       setRuntimeInventory(nextInventory);
     }
-  }, [gameplayState.collectedResourceIds, runtimeInventory]);
+  }, [
+    hasHydratedRuntimeInventory,
+    gameplayState.collectedResourceIds,
+    runtimeInventory,
+  ]);
+
+  // Persist every inventory change, including Remove 1.
+  useEffect(() => {
+    if (!hasHydratedRuntimeInventory) return;
+
+    saveRuntimeInventorySave(runtimeInventory);
+  }, [runtimeInventory, hasHydratedRuntimeInventory]);
 
   const crystalCount = gameplayState.collectedResourceIds.length;
 
