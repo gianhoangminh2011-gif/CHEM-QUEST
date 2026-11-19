@@ -1,5 +1,4 @@
 
-import { useState } from 'react';
 import {
   removeResource,
   type InventoryState,
@@ -20,122 +19,94 @@ function InventoryPanel({
   elements,
   researchSamples,
 }: InventoryPanelProps) {
-  const [selectedResourceId, setSelectedResourceId] = useState<string>('');
-
   const resources = Object.entries(inventory.resources);
 
-  const selectedResource = resources.find(
-    ([resourceId]) => resourceId === selectedResourceId
-  );
-
-  const handleRemoveOne = () => {
-    if (!selectedResource) {
-      return;
-    }
-
-    const [resourceId] = selectedResource;
+  const handleRemove = (resourceId: string) => {
     const result = removeResource(inventory, resourceId, 1);
 
     if (result.ok) {
       onInventoryChange(result.state);
-
-      if (
-        result.state.resources[resourceId] === undefined
-      ) {
-        setSelectedResourceId('');
-      }
     }
   };
 
   return (
     <section className="inventory-panel">
-      <div className="quest-icon">▣</div>
       <h3>Resource Inventory</h3>
       <p className="info-description">
-        Manage collected resources and review your research samples.
+        Manage your collected resources.
       </p>
 
       <div className="quest-objective">
-        <span>RESOURCES · {resources.length}</span>
+        <strong>RESOURCES · {resources.length}</strong>
 
         {resources.length === 0 ? (
-          <p>Your inventory is empty. Explore to collect crystals.</p>
+          <p>Your inventory is empty.</p>
         ) : (
           resources.map(([resourceId, quantity]) => (
-            <button
+            <div
               key={resourceId}
-              type="button"
-              className={
-                selectedResourceId === resourceId
-                  ? 'nav-item active'
-                  : 'nav-item'
-              }
-              onClick={() => setSelectedResourceId(resourceId)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                padding: '10px',
+                marginTop: '8px',
+                border: '1px solid #777',
+                borderRadius: '8px',
+              }}
             >
-              <span>◇</span>
-              {resourceId}
-              <strong>×{quantity}</strong>
-            </button>
+              <div>
+                <strong>{resourceId}</strong>
+                <p style={{ margin: '4px 0' }}>
+                  Quantity: {quantity}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                disabled={quantity <= 0}
+                onClick={() => handleRemove(resourceId)}
+                style={{
+                  padding: '8px 12px',
+                  cursor: 'pointer',
+                  borderRadius: '6px',
+                  border: '1px solid #999',
+                }}
+              >
+                Remove 1
+              </button>
+            </div>
           ))
         )}
       </div>
 
-      {selectedResource && (
-        <div className="quest-reward">
-          <span>SELECTED RESOURCE</span>
-          <strong>{selectedResource[0]}</strong>
-          <p>Quantity: {selectedResource[1]}</p>
-
-          <button
-            type="button"
-            className="nav-item"
-            onClick={handleRemoveOne}
-          >
-            Remove 1
-          </button>
-        </div>
-      )}
-
       <div className="quest-objective">
-        <span>CRAFTING</span>
+        <strong>CRAFTING</strong>
         <p>No approved crafting recipes are available yet.</p>
-        <button type="button" className="nav-item" disabled>
+        <button type="button" disabled>
           Crafting unavailable
         </button>
       </div>
 
       <div className="quest-objective">
-        <span>ELEMENT RECORDS · {elements.length}</span>
-
-        {elements.length === 0 ? (
-          <p>No element records available.</p>
-        ) : (
-          elements.map((element) => (
-            <div key={element.id}>
-              <p>
-                <strong>{element.symbol}</strong> · {element.name}
-              </p>
-              <p>{element.classification}</p>
-              <p>STATUS: {element.identificationStatus.toUpperCase()}</p>
-            </div>
-          ))
-        )}
+        <strong>ELEMENT RECORDS · {elements.length}</strong>
+        {elements.map((element) => (
+          <div key={element.id}>
+            <p>
+              {element.symbol} · {element.name}
+            </p>
+            <p>{element.classification}</p>
+            <p>Status: {element.identificationStatus}</p>
+          </div>
+        ))}
       </div>
 
       <div className="quest-objective">
-        <span>RESEARCH SAMPLES · {researchSamples.length}</span>
-
-        {researchSamples.length === 0 ? (
-          <p>No research samples collected yet.</p>
-        ) : (
-          researchSamples.map((sample) => (
-            <div key={sample.id}>
-              <p>
-                <strong>{sample.id}</strong>
-              </p>
-            </div>
-          ))
-        )}
+        <strong>RESEARCH SAMPLES · {researchSamples.length}</strong>
+        {researchSamples.map((sample) => (
+          <p key={sample.id}>{sample.id}</p>
+        ))}
       </div>
     </section>
   );
