@@ -211,10 +211,6 @@ export function loadRuntimeInventorySnapshot(
   }
 }
 
-/**
- * Updates inventory while preserving the current revision
- * and durable transaction journal.
- */
 export function updateRuntimeInventoryPreservingJournal(
   inventory: RuntimeInventoryState,
   storage?: Storage,
@@ -229,7 +225,6 @@ export function updateRuntimeInventoryPreservingJournal(
     const raw = target.getItem(RUNTIME_INVENTORY_SAVE_KEY);
     const current = loadRuntimeInventorySnapshot(target);
 
-    // Never overwrite a present but unreadable save.
     if (raw !== null && current === null) {
       return false;
     }
@@ -251,14 +246,7 @@ export function saveRuntimeInventory(
   inventory: RuntimeInventoryState,
   storage?: Storage,
 ): boolean {
-  return saveRuntimeInventorySnapshot(
-    {
-      inventory,
-      revision: 0,
-      transactions: [],
-    },
-    storage,
-  );
+  return updateRuntimeInventoryPreservingJournal(inventory, storage);
 }
 
 export function loadRuntimeInventory(
