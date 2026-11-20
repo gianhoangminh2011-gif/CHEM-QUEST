@@ -1,3 +1,4 @@
+
 import {
   applyReaction,
   type ReactionDefinition,
@@ -85,11 +86,13 @@ function isValidCrystalInventory(
 
 function fingerprintReaction(
   reaction: ReactionDefinition,
+  expectedRevision: number,
 ): string {
   return JSON.stringify({
     id: reaction.id,
     inputs: reaction.inputs,
     outputs: reaction.outputs,
+    expectedRevision,
   });
 }
 
@@ -184,7 +187,7 @@ export class InventoryTransactionService {
     let fingerprint: string;
 
     try {
-      fingerprint = fingerprintReaction(reaction);
+      fingerprint = fingerprintReaction(reaction, expectedRevision);
     } catch {
       return failure(
         "INVALID_REACTION",
@@ -198,7 +201,7 @@ export class InventoryTransactionService {
       if (existing.fingerprint !== fingerprint) {
         return failure(
           "DUPLICATE_TRANSACTION_ID",
-          "Transaction ID was already used for a different reaction.",
+          "Transaction ID was already used for a different request.",
         );
       }
 
