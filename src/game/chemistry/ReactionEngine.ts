@@ -1,4 +1,9 @@
 
+import {
+  getApprovedReactionById,
+  type ReactionRegistryEntry,
+} from "./ReactionRegistry";
+
 export type ReactionMaterial = {
   resourceId: string;
   quantity: number;
@@ -30,7 +35,7 @@ export type ReactionResult =
       message: string;
     };
 
-// No production reactions until verified data is approved.
+// Compatibility export. No production reactions are registered yet.
 export const REACTION_REGISTRY: readonly ReactionDefinition[] =
   Object.freeze([]);
 
@@ -50,15 +55,15 @@ function isValidId(value: unknown): value is string {
 }
 
 function isValidQuantity(value: unknown): value is number {
-  if (typeof value !== "number") {
-    return false;
-  }
-
-  return Number.isSafeInteger(value) && value > 0;
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value > 0
+  );
 }
 
 function validateMaterials(
-  materials: readonly ReactionMaterial[]
+  materials: readonly ReactionMaterial[],
 ): ReactionErrorCode | null {
   if (!Array.isArray(materials) || materials.length === 0) {
     return "INVALID_REACTION";
@@ -91,7 +96,7 @@ function validateMaterials(
 
 function failure(
   error: ReactionErrorCode,
-  message: string
+  message: string,
 ): ReactionResult {
   return {
     success: false,
@@ -102,7 +107,7 @@ function failure(
 
 export function applyReaction(
   reaction: ReactionDefinition,
-  inventory: Readonly<Record<string, number>>
+  inventory: Readonly<Record<string, number>>,
 ): ReactionResult {
   if (
     !reaction ||
@@ -141,7 +146,7 @@ export function applyReaction(
     ) {
       return failure(
         "INVALID_INVENTORY",
-        "Inventory contains invalid data."
+        "Inventory contains invalid data.",
       );
     }
   }
@@ -154,7 +159,7 @@ export function applyReaction(
     if (available < input.quantity) {
       return failure(
         "INSUFFICIENT_RESOURCES",
-        `Not enough ${input.resourceId}.`
+        `Not enough ${input.resourceId}.`,
       );
     }
   }
@@ -181,7 +186,7 @@ export function applyReaction(
     if (!Number.isSafeInteger(next)) {
       return failure(
         "QUANTITY_OVERFLOW",
-        `Output quantity overflow for ${output.resourceId}.`
+        `Output quantity overflow for ${output.resourceId}.`,
       );
     }
 
@@ -195,14 +200,11 @@ export function applyReaction(
   };
 }
 
+// All lookups now pass through the registry approval gate.
+// The optional second argument supports isolated registry tests.
 export function getReactionById(
-  reactionId: string
+  reactionId: string,
+  registry?: readonly ReactionRegistryEntry[],
 ): ReactionDefinition | undefined {
-  if (!isValidId(reactionId)) {
-    return undefined;
-  }
-
-  return REACTION_REGISTRY.find(
-    (reaction) => reaction.id === reactionId
-  );
+  return getApprovedReactionById(reactionId, registry);
 }
