@@ -23,6 +23,34 @@ import type { RuntimeInventoryState } from "../inventory/RuntimeInventorySystem"
 
 const mockedGetReactionById = vi.mocked(getReactionById);
 
+class MemoryStorage implements Storage {
+  #data = new Map<string, string>();
+
+  get length(): number {
+    return this.#data.size;
+  }
+
+  clear(): void {
+    this.#data.clear();
+  }
+
+  getItem(key: string): string | null {
+    return this.#data.get(key) ?? null;
+  }
+
+  key(index: number): string | null {
+    return Array.from(this.#data.keys())[index] ?? null;
+  }
+
+  removeItem(key: string): void {
+    this.#data.delete(key);
+  }
+
+  setItem(key: string, value: string): void {
+    this.#data.set(key, String(value));
+  }
+}
+
 const approvedReaction: ReactionDefinition = {
   id: "approved-test-reaction",
   inputs: [
@@ -54,10 +82,12 @@ function createService(
     "crystal-water": 5,
   },
   revision = 0,
+  storage: Storage = new MemoryStorage(),
 ): ReactionExecutionService {
   return new ReactionExecutionService(
     createInventory(resources),
     revision,
+    storage,
   );
 }
 
@@ -288,5 +318,92 @@ describe("ReactionExecutionService", () => {
 
     expect(Object.keys(service)).not.toContain("transactions");
     expect(Object.getOwnPropertySymbols(service)).toHaveLength(0);
+  });
+
+  it("restores committed transactions after service recreation", () => {
+    mockedGetReactionById.mockReturnValue(approvedReaction);
+
+    const storage = new MemoryStorage();
+
+    const firstService = createService(
+      { "crystal-water": 5 },
+      0,
+      storage,
+    );
+
+    expect(
+      firstService.prepare(createRequest("tx-durable-commit")).success,
+    ).toBe(true);
+
+    expect(
+      firstService.commit("tx-durable-commit").success,
+    ).toBe(true);
+
+    const secondService = createService(
+      {},
+      0,
+      storage,
+    );
+
+    expect(secondService.getSnapshot()).toEqual({
+      inventory: {
+        resources: {
+          "crystal-water": 3,
+          "crystal-steam": 1,
+        },
+      },
+      revision: 1,
+    });
+
+    const repeatedCommit = secondService.commit(
+      "tx-durable-commit",
+    );
+
+    expect(repeatedCommit.success).toBe(true);
+
+    if (!repeatedCommit.success) return;
+
+    expect(repeatedCommit.record.status).toBe("COMMITTED");
+    expect(secondService.getSnapshot().revision).toBe(1);
+  });
+
+  it("recovers an interrupted prepared transaction as rolled back", () => {
+    mockedGetReactionById.mockReturnValue(approvedReaction);
+
+    const storage = new MemoryStorage();
+
+    const firstService = createService(
+      { "crystal-water": 5 },
+      0,
+      storage,
+    );
+
+    expect(
+      firstService.prepare(createRequest("tx-durable-prepared")).success,
+    ).toBe(true);
+
+    const recoveredService = createService(
+      {},
+      0,
+      storage,
+    );
+
+    const result = recoveredService.rollback(
+      "tx-durable-prepared",
+    );
+
+    expect(result.success).toBe(true);
+
+    if (!result.success) return;
+
+    expect(result.record.status).toBe("ROLLED_BACK");
+    expect(recoveredService.getSnapshot()).toEqual({
+      inventory: {
+        resources: {
+          "crystal-water": 5,
+        },
+      },
+      revision: 0,
+    });
   });
 });

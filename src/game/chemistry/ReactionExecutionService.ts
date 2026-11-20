@@ -71,10 +71,12 @@ export class ReactionExecutionService {
   constructor(
     initialInventory: RuntimeInventoryState,
     initialRevision = 0,
+    storage?: Storage,
   ) {
     this.#transactions = new InventoryTransactionService(
       initialInventory,
       initialRevision,
+      storage,
     );
   }
 

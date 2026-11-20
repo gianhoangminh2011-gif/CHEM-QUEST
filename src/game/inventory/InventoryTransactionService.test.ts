@@ -1,14 +1,51 @@
-
 import { describe, expect, it } from "vitest";
 
 import { InventoryTransactionService } from "./InventoryTransactionService";
 import type { RuntimeInventoryState } from "./RuntimeInventorySystem";
 import type { ReactionDefinition } from "../chemistry/ReactionEngine";
 
+class MemoryStorage implements Storage {
+  private readonly values = new Map<string, string>();
+
+  get length(): number {
+    return this.values.size;
+  }
+
+  clear(): void {
+    this.values.clear();
+  }
+
+  getItem(key: string): string | null {
+    return this.values.get(key) ?? null;
+  }
+
+  key(index: number): string | null {
+    return Array.from(this.values.keys())[index] ?? null;
+  }
+
+  removeItem(key: string): void {
+    this.values.delete(key);
+  }
+
+  setItem(key: string, value: string): void {
+    this.values.set(key, String(value));
+  }
+}
+
 function createInventory(
   resources: Record<string, number> = {},
 ): RuntimeInventoryState {
   return { resources };
+}
+
+function createService(
+  resources: Record<string, number> = {},
+): InventoryTransactionService {
+  return new InventoryTransactionService(
+    createInventory(resources),
+    0,
+    new MemoryStorage(),
+  );
 }
 
 const reaction: ReactionDefinition = {
@@ -19,9 +56,7 @@ const reaction: ReactionDefinition = {
 
 describe("InventoryTransactionService", () => {
   it("prepares without mutating inventory or revision", () => {
-    const service = new InventoryTransactionService(
-      createInventory({ "crystal-water": 3 }),
-    );
+    const service = createService({ "crystal-water": 3 });
 
     const result = service.prepare("tx-001", reaction);
 
@@ -38,9 +73,7 @@ describe("InventoryTransactionService", () => {
   });
 
   it("commits once and makes repeated commit idempotent", () => {
-    const service = new InventoryTransactionService(
-      createInventory({ "crystal-water": 3 }),
-    );
+    const service = createService({ "crystal-water": 3 });
 
     const prepared = service.prepare("tx-002", reaction);
     expect(prepared.success).toBe(true);
@@ -67,9 +100,7 @@ describe("InventoryTransactionService", () => {
   });
 
   it("rejects insufficient materials without changing state", () => {
-    const service = new InventoryTransactionService(
-      createInventory({ "crystal-water": 1 }),
-    );
+    const service = createService({ "crystal-water": 1 });
 
     const result = service.prepare("tx-003", reaction);
 
@@ -87,9 +118,7 @@ describe("InventoryTransactionService", () => {
   });
 
   it("rolls back a prepared transaction without changing inventory", () => {
-    const service = new InventoryTransactionService(
-      createInventory({ "crystal-water": 3 }),
-    );
+    const service = createService({ "crystal-water": 3 });
 
     const prepared = service.prepare("tx-004", reaction);
     expect(prepared.success).toBe(true);
@@ -112,9 +141,7 @@ describe("InventoryTransactionService", () => {
   });
 
   it("rejects a second prepared transaction after revision changes", () => {
-    const service = new InventoryTransactionService(
-      createInventory({ "crystal-water": 5 }),
-    );
+    const service = createService({ "crystal-water": 5 });
 
     const first = service.prepare("tx-005", reaction);
     const second = service.prepare("tx-006", reaction);
@@ -140,9 +167,7 @@ describe("InventoryTransactionService", () => {
   });
 
   it("rejects reuse of a transaction ID for a different reaction", () => {
-    const service = new InventoryTransactionService(
-      createInventory({ "crystal-water": 3 }),
-    );
+    const service = createService({ "crystal-water": 3 });
 
     expect(service.prepare("tx-007", reaction).success).toBe(true);
 
@@ -161,9 +186,7 @@ describe("InventoryTransactionService", () => {
   });
 
   it("rejects non-crystal material IDs", () => {
-    const service = new InventoryTransactionService(
-      createInventory({ "crystal-water": 3 }),
-    );
+    const service = createService({ "crystal-water": 3 });
 
     const invalidReaction: ReactionDefinition = {
       id: "invalid-reaction",
@@ -180,9 +203,7 @@ describe("InventoryTransactionService", () => {
   });
 
   it("does not allow rollback after commit", () => {
-    const service = new InventoryTransactionService(
-      createInventory({ "crystal-water": 3 }),
-    );
+    const service = createService({ "crystal-water": 3 });
 
     service.prepare("tx-009", reaction);
     service.commit("tx-009");
@@ -196,9 +217,7 @@ describe("InventoryTransactionService", () => {
   });
 
   it("rejects the same transaction ID with a different expected revision", () => {
-    const service = new InventoryTransactionService(
-      createInventory({ "crystal-water": 3 }),
-    );
+    const service = createService({ "crystal-water": 3 });
 
     expect(
       service.prepare("tx-010", reaction, 0).success,
@@ -212,5 +231,74 @@ describe("InventoryTransactionService", () => {
     });
 
     expect(service.getSnapshot().revision).toBe(0);
+  });
+
+  it("restores committed inventory and journal after service recreation", () => {
+    const storage = new MemoryStorage();
+
+    const firstService = new InventoryTransactionService(
+      createInventory({ "crystal-water": 3 }),
+      0,
+      storage,
+    );
+
+    expect(firstService.prepare("tx-reload-committed", reaction).success)
+      .toBe(true);
+    expect(firstService.commit("tx-reload-committed").success)
+      .toBe(true);
+
+    const restoredService = new InventoryTransactionService(
+      createInventory(),
+      0,
+      storage,
+    );
+
+    expect(restoredService.getSnapshot()).toEqual({
+      inventory: {
+        resources: {
+          "crystal-water": 1,
+          "crystal-steam": 1,
+        },
+      },
+      revision: 1,
+    });
+
+    expect(
+      restoredService.commit("tx-reload-committed"),
+    ).toMatchObject({
+      success: true,
+      record: { status: "COMMITTED" },
+      revision: 1,
+    });
+  });
+
+  it("recovers an interrupted PREPARED transaction as ROLLED_BACK", () => {
+    const storage = new MemoryStorage();
+
+    const firstService = new InventoryTransactionService(
+      createInventory({ "crystal-water": 3 }),
+      0,
+      storage,
+    );
+
+    expect(firstService.prepare("tx-recovery", reaction).success).toBe(true);
+
+    const restoredService = new InventoryTransactionService(
+      createInventory(),
+      0,
+      storage,
+    );
+
+    expect(restoredService.getSnapshot()).toEqual({
+      inventory: {
+        resources: { "crystal-water": 3 },
+      },
+      revision: 0,
+    });
+
+    expect(restoredService.commit("tx-recovery")).toMatchObject({
+      success: false,
+      error: "TRANSACTION_ALREADY_ROLLED_BACK",
+    });
   });
 });

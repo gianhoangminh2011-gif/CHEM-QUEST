@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 import PhaserGame from './game/PhaserGame';
 import LabPanel from './game/LabPanel';
@@ -20,7 +19,7 @@ import {
 } from './game/inventory/RuntimeInventorySystem';
 import {
   loadRuntimeInventory,
-  saveRuntimeInventory,
+  updateRuntimeInventoryPreservingJournal,
 } from './game/inventory/RuntimeInventorySaveService';
 import {
   isAnalysed,
@@ -66,12 +65,13 @@ function App() {
     []
   );
 
-  // Save inventory immediately whenever the user changes it.
   const handleInventoryChange = useCallback(
     (nextInventory: RuntimeInventoryState) => {
       setRuntimeInventory(nextInventory);
 
-      const saved = saveRuntimeInventory(nextInventory);
+      const saved = updateRuntimeInventoryPreservingJournal(
+        nextInventory,
+      );
 
       if (!saved) {
         console.error('CHEM QUEST: Inventory save failed.');
@@ -82,10 +82,10 @@ function App() {
 
   useEffect(() => {
     if (!hasReceivedGameplayState) return;
+
     saveGameplayState(gameplayState);
   }, [gameplayState, hasReceivedGameplayState]);
 
-  // Restore inventory after gameplay state is ready.
   useEffect(() => {
     if (!hasReceivedGameplayState || hasHydratedRuntimeInventory) {
       return;
@@ -94,10 +94,8 @@ function App() {
     const savedInventory = loadRuntimeInventory();
 
     if (savedInventory !== null) {
-      // An empty saved inventory is valid and must stay empty.
       setRuntimeInventory(savedInventory);
     } else {
-      // Only initialize from collected crystals if no valid inventory save exists.
       let initialInventory = createRuntimeInventory();
 
       for (const resourceId of gameplayState.collectedResourceIds) {
@@ -114,10 +112,16 @@ function App() {
       }
 
       setRuntimeInventory(initialInventory);
-      saveRuntimeInventory(initialInventory);
+
+      const saved = updateRuntimeInventoryPreservingJournal(
+        initialInventory,
+      );
+
+      if (!saved) {
+        console.error('CHEM QUEST: Initial inventory save failed.');
+      }
     }
 
-    // Prevent old gameplay crystal IDs from being collected again.
     for (const resourceId of gameplayState.collectedResourceIds) {
       if (resourceId.startsWith('crystal-')) {
         processedCrystalIds.current.add(resourceId);
@@ -131,7 +135,6 @@ function App() {
     gameplayState.collectedResourceIds,
   ]);
 
-  // Add only genuinely new crystals.
   useEffect(() => {
     if (!hasHydratedRuntimeInventory) return;
 
@@ -146,7 +149,10 @@ function App() {
         continue;
       }
 
-      const result = collectRuntimeResource(nextInventory, resourceId);
+      const result = collectRuntimeResource(
+        nextInventory,
+        resourceId
+      );
 
       if (result.ok) {
         nextInventory = result.state;
@@ -157,7 +163,14 @@ function App() {
 
     if (changed) {
       setRuntimeInventory(nextInventory);
-      saveRuntimeInventory(nextInventory);
+
+      const saved = updateRuntimeInventoryPreservingJournal(
+        nextInventory,
+      );
+
+      if (!saved) {
+        console.error('CHEM QUEST: Inventory update save failed.');
+      }
     }
   }, [
     hasHydratedRuntimeInventory,
@@ -165,10 +178,16 @@ function App() {
     runtimeInventory,
   ]);
 
-  // Keep storage synchronized with inventory state.
   useEffect(() => {
     if (!hasHydratedRuntimeInventory) return;
-    saveRuntimeInventory(runtimeInventory);
+
+    const saved = updateRuntimeInventoryPreservingJournal(
+      runtimeInventory,
+    );
+
+    if (!saved) {
+      console.error('CHEM QUEST: Inventory synchronization failed.');
+    }
   }, [runtimeInventory, hasHydratedRuntimeInventory]);
 
   const crystalCount = gameplayState.collectedResourceIds.length;
