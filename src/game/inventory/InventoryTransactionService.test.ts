@@ -1,3 +1,4 @@
+
 import { describe, expect, it } from "vitest";
 
 import { InventoryTransactionService } from "./InventoryTransactionService";
@@ -192,5 +193,24 @@ describe("InventoryTransactionService", () => {
     });
 
     expect(service.getSnapshot().revision).toBe(1);
+  });
+
+  it("rejects the same transaction ID with a different expected revision", () => {
+    const service = new InventoryTransactionService(
+      createInventory({ "crystal-water": 3 }),
+    );
+
+    expect(
+      service.prepare("tx-010", reaction, 0).success,
+    ).toBe(true);
+
+    expect(
+      service.prepare("tx-010", reaction, 1),
+    ).toMatchObject({
+      success: false,
+      error: "DUPLICATE_TRANSACTION_ID",
+    });
+
+    expect(service.getSnapshot().revision).toBe(0);
   });
 });
