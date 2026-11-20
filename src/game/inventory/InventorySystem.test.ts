@@ -2,17 +2,25 @@
 import { describe, it, expect } from 'vitest';
 import {
   createGameplayState,
-  updateGameplayState,
   applyCollectSample,
   applyAnalyzeSample,
+  updateGameplayState,
 } from '../state/GameplayState';
+import {
+  collectRuntimeResource,
+  createRuntimeInventory,
+  removeRuntimeResource,
+} from './RuntimeInventorySystem';
 import { getInventorySnapshot } from './InventorySystem';
 
 describe('InventorySystem', () => {
-  it('returns an empty inventory for a new gameplay state', () => {
-    const state = createGameplayState();
+  it('returns an empty inventory for new states', () => {
+    const snapshot = getInventorySnapshot(
+      createGameplayState(),
+      createRuntimeInventory()
+    );
 
-    expect(getInventorySnapshot(state)).toEqual({
+    expect(snapshot).toEqual({
       resources: [],
       researchSamples: [],
       totalResourceTypes: 0,
@@ -23,18 +31,21 @@ describe('InventorySystem', () => {
     });
   });
 
-  it('lists a collected crystal with its catalog record', () => {
-    let state = createGameplayState();
+  it('lists canonical runtime resources with catalog records', () => {
+    const collected = collectRuntimeResource(
+      createRuntimeInventory(),
+      'crystal-540-210'
+    );
 
-    state = updateGameplayState(state, {
-      type: 'COLLECT_RESOURCE',
-      id: 'crystal-540-210',
-    });
+    expect(collected.ok).toBe(true);
 
-    const inventory = getInventorySnapshot(state);
+    const snapshot = getInventorySnapshot(
+      createGameplayState(),
+      collected.state
+    );
 
-    expect(inventory.resources).toHaveLength(1);
-    expect(inventory.resources[0]).toMatchObject({
+    expect(snapshot.resources).toHaveLength(1);
+    expect(snapshot.resources[0]).toMatchObject({
       id: 'crystal-540-210',
       quantity: 1,
       element: {
@@ -45,76 +56,116 @@ describe('InventorySystem', () => {
       },
     });
 
-    expect(inventory.totalResourceTypes).toBe(1);
-    expect(inventory.totalResourceQuantity).toBe(1);
+    expect(snapshot.totalResourceTypes).toBe(1);
+    expect(snapshot.totalResourceQuantity).toBe(1);
+  });
+
+  it('does not recreate consumed resources from collection history', () => {
+    let gameplay = createGameplayState();
+
+    gameplay = updateGameplayState(gameplay, {
+      type: 'COLLECT_RESOURCE',
+      id: 'crystal-540-210',
+    });
+
+    const collected = collectRuntimeResource(
+      createRuntimeInventory(),
+      'crystal-540-210'
+    );
+
+    expect(collected.ok).toBe(true);
+
+    const removed = removeRuntimeResource(
+      collected.state,
+      'crystal-540-210',
+      1
+    );
+
+    expect(removed.ok).toBe(true);
+
+    const snapshot = getInventorySnapshot(
+      gameplay,
+      removed.state
+    );
+
+    expect(snapshot.resources).toEqual([]);
+    expect(snapshot.totalResourceQuantity).toBe(0);
+  });
+
+  it('does not count historical resources absent from runtime inventory', () => {
+    let gameplay = createGameplayState();
+
+    gameplay = updateGameplayState(gameplay, {
+      type: 'COLLECT_RESOURCE',
+      id: 'crystal-540-210',
+    });
+
+    const snapshot = getInventorySnapshot(
+      gameplay,
+      createRuntimeInventory()
+    );
+
+    expect(snapshot.resources).toEqual([]);
+    expect(snapshot.totalResourceQuantity).toBe(0);
   });
 
   it('keeps unknown resources without inventing catalog data', () => {
-    let state = createGameplayState();
+    const collected = collectRuntimeResource(
+      createRuntimeInventory(),
+      'crystal-unknown-01'
+    );
 
-    state = updateGameplayState(state, {
-      type: 'COLLECT_RESOURCE',
-      id: 'unknown-resource-01',
-    });
+    expect(collected.ok).toBe(true);
 
-    const inventory = getInventorySnapshot(state);
+    const snapshot = getInventorySnapshot(
+      createGameplayState(),
+      collected.state
+    );
 
-    expect(inventory.resources).toEqual([
+    expect(snapshot.resources).toEqual([
       {
-        id: 'unknown-resource-01',
+        id: 'crystal-unknown-01',
         quantity: 1,
         element: null,
       },
     ]);
   });
 
-  it('counts distinct collected resource types', () => {
-    let state = createGameplayState();
+  it('counts distinct resource types and total quantity', () => {
+    let inventory = createRuntimeInventory();
 
-    state = updateGameplayState(state, {
-      type: 'COLLECT_RESOURCE',
-      id: 'crystal-540-210',
-    });
+    const first = collectRuntimeResource(
+      inventory,
+      'crystal-540-210'
+    );
+    expect(first.ok).toBe(true);
+    inventory = first.state;
 
-    state = updateGameplayState(state, {
-      type: 'COLLECT_RESOURCE',
-      id: 'crystal-760-335',
-    });
+    const second = collectRuntimeResource(
+      inventory,
+      'crystal-540-210'
+    );
+    expect(second.ok).toBe(true);
+    inventory = second.state;
 
-    const inventory = getInventorySnapshot(state);
+    const third = collectRuntimeResource(
+      inventory,
+      'crystal-760-335'
+    );
+    expect(third.ok).toBe(true);
+    inventory = third.state;
 
-    expect(inventory.totalResourceTypes).toBe(2);
-    expect(inventory.totalResourceQuantity).toBe(2);
-    expect(inventory.resources.map((item) => item.id)).toEqual([
+    const snapshot = getInventorySnapshot(
+      createGameplayState(),
+      inventory
+    );
+
+    expect(snapshot.totalResourceTypes).toBe(2);
+    expect(snapshot.totalResourceQuantity).toBe(3);
+    expect(snapshot.resources.map((item) => item.id)).toEqual([
       'crystal-540-210',
       'crystal-760-335',
     ]);
-  });
-
-  it('counts duplicate IDs defensively if they exist in restored state', () => {
-    const state = createGameplayState();
-
-    state.collectedResourceIds.push(
-      'crystal-540-210',
-      'crystal-540-210'
-    );
-
-    const inventory = getInventorySnapshot(state);
-
-    expect(inventory.totalResourceTypes).toBe(1);
-    expect(inventory.totalResourceQuantity).toBe(2);
-    expect(inventory.resources[0].quantity).toBe(2);
-  });
-
-  it('ignores blank resource IDs', () => {
-    const state = createGameplayState();
-
-    state.collectedResourceIds.push('', '   ');
-
-    const inventory = getInventorySnapshot(state);
-
-    expect(inventory.resources).toEqual([]);
-    expect(inventory.totalResourceQuantity).toBe(0);
   });
 
   it('lists collected research samples as not analysed', () => {
@@ -125,9 +176,12 @@ describe('InventorySystem', () => {
 
     expect(transition.result.ok).toBe(true);
 
-    const inventory = getInventorySnapshot(transition.state);
+    const snapshot = getInventorySnapshot(
+      transition.state,
+      createRuntimeInventory()
+    );
 
-    expect(inventory.researchSamples).toEqual([
+    expect(snapshot.researchSamples).toEqual([
       {
         id: 'sample:outcrop-350-315',
         sourceId: 'outcrop-350-315',
@@ -137,9 +191,9 @@ describe('InventorySystem', () => {
       },
     ]);
 
-    expect(inventory.totalResearchSamples).toBe(1);
-    expect(inventory.analysedSamples).toBe(0);
-    expect(inventory.unanalysedSamples).toBe(1);
+    expect(snapshot.totalResearchSamples).toBe(1);
+    expect(snapshot.analysedSamples).toBe(0);
+    expect(snapshot.unanalysedSamples).toBe(1);
   });
 
   it('marks a research sample as analysed after analysis', () => {
@@ -157,62 +211,53 @@ describe('InventorySystem', () => {
 
     expect(analysed.result.ok).toBe(true);
 
-    const inventory = getInventorySnapshot(analysed.state);
+    const snapshot = getInventorySnapshot(
+      analysed.state,
+      createRuntimeInventory()
+    );
 
-    expect(inventory.researchSamples[0].analysed).toBe(true);
-    expect(inventory.totalResearchSamples).toBe(1);
-    expect(inventory.analysedSamples).toBe(1);
-    expect(inventory.unanalysedSamples).toBe(0);
+    expect(snapshot.researchSamples[0].analysed).toBe(true);
+    expect(snapshot.totalResearchSamples).toBe(1);
+    expect(snapshot.analysedSamples).toBe(1);
+    expect(snapshot.unanalysedSamples).toBe(0);
   });
 
-  it('does not mutate gameplay state while creating a snapshot', () => {
-    let state = createGameplayState();
-
-    state = updateGameplayState(state, {
-      type: 'COLLECT_RESOURCE',
-      id: 'crystal-540-210',
-    });
-
-    const resourceIdsBefore = [
-      ...state.collectedResourceIds,
-    ];
-
-    const samplesBefore = {
-      ...state.researchSamplesById,
-    };
-
-    const analysisBefore = {
-      ...state.analysisResultsBySampleId,
-    };
-
-    getInventorySnapshot(state);
-
-    expect(state.collectedResourceIds).toEqual(
-      resourceIdsBefore
+  it('does not mutate either source state while creating a snapshot', () => {
+    const gameplay = createGameplayState();
+    const collected = collectRuntimeResource(
+      createRuntimeInventory(),
+      'crystal-540-210'
     );
 
-    expect(state.researchSamplesById).toEqual(
-      samplesBefore
-    );
+    expect(collected.ok).toBe(true);
 
-    expect(state.analysisResultsBySampleId).toEqual(
-      analysisBefore
-    );
+    const resourceIdsBefore = [...gameplay.collectedResourceIds];
+    const samplesBefore = { ...gameplay.researchSamplesById };
+    const resourcesBefore = { ...collected.state.resources };
+
+    getInventorySnapshot(gameplay, collected.state);
+
+    expect(gameplay.collectedResourceIds).toEqual(resourceIdsBefore);
+    expect(gameplay.researchSamplesById).toEqual(samplesBefore);
+    expect(collected.state.resources).toEqual(resourcesBefore);
   });
 
   it('does not include malformed research sample records', () => {
-    const state = createGameplayState();
+    const gameplay = createGameplayState();
 
-    state.researchSamplesById['sample:invalid-record'] = {
+    gameplay.researchSamplesById['sample:invalid-record'] = {
       id: 'sample:different-id',
       sourceId: 'outcrop-350-315',
       sampleType: 'unidentified-mineral',
       displayName: 'Invalid Record',
     };
 
-    const inventory = getInventorySnapshot(state);
+    const snapshot = getInventorySnapshot(
+      gameplay,
+      createRuntimeInventory()
+    );
 
-    expect(inventory.researchSamples).toEqual([]);
-    expect(inventory.totalResearchSamples).toBe(0);
+    expect(snapshot.researchSamples).toEqual([]);
+    expect(snapshot.totalResearchSamples).toBe(0);
   });
 });
