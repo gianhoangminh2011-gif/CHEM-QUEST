@@ -1,12 +1,12 @@
+
 import {
   applyReaction,
   type ReactionDefinition,
   type ReactionErrorCode,
 } from "../chemistry/ReactionEngine";
-
 import type { RuntimeInventoryState } from "./RuntimeInventorySystem";
-
 import {
+  RUNTIME_INVENTORY_SAVE_KEY,
   loadRuntimeInventorySnapshot,
   saveRuntimeInventorySnapshot,
   type DurableInventoryTransaction,
@@ -112,12 +112,25 @@ function failure(
   return { success: false, error, message };
 }
 
+function resolveStorage(storage?: Storage): Storage {
+  if (storage) return storage;
+
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      return window.localStorage;
+    }
+  } catch {
+    // Access to browser storage can itself throw.
+  }
+
+  throw new Error("Durable inventory storage is unavailable.");
+}
+
 export class InventoryTransactionService {
   private inventory: RuntimeInventoryState;
   private revision: number;
   private readonly transactions = new Map<string, StoredTransaction>();
-  private readonly storage: Storage | undefined;
-  private readonly persistenceEnabled: boolean;
+  private readonly storage: Storage;
 
   constructor(
     initialInventory: RuntimeInventoryState,
@@ -132,13 +145,14 @@ export class InventoryTransactionService {
       throw new Error("Invalid initial inventory revision.");
     }
 
-    this.storage = storage ??
-      (typeof window !== "undefined" ? window.localStorage : undefined);
+    this.storage = resolveStorage(storage);
 
-    this.persistenceEnabled = Boolean(this.storage);
+    let raw: string | null;
 
-    if (!this.persistenceEnabled) {
-      throw new Error("Durable inventory storage is unavailable.");
+    try {
+      raw = this.storage.getItem(RUNTIME_INVENTORY_SAVE_KEY);
+    } catch {
+      throw new Error("Unable to read durable inventory storage.");
     }
 
     const loaded = loadRuntimeInventorySnapshot(this.storage);
@@ -166,26 +180,20 @@ export class InventoryTransactionService {
       }
 
       this.recoverPreparedTransactions();
-    } else {
-      this.inventory = {
-        resources: freezeInventory(initialInventory.resources),
-      };
-      this.revision = initialRevision;
+      return;
+    }
 
-      // Do not overwrite an existing unreadable or corrupt save.
-      if (this.storage.getItem(
-        "chem-quest:runtime-inventory-save",
-      ) !== null) {
-        throw new Error("Corrupted inventory save; refusing to overwrite.");
-      }
+    if (raw !== null) {
+      throw new Error("Corrupted inventory save; refusing to overwrite.");
+    }
 
-      if (!this.persist(
-        this.inventory,
-        this.revision,
-        [],
-      )) {
-        throw new Error("Unable to initialize durable inventory storage.");
-      }
+    this.inventory = {
+      resources: freezeInventory(initialInventory.resources),
+    };
+    this.revision = initialRevision;
+
+    if (!this.persist(this.inventory, this.revision, [])) {
+      throw new Error("Unable to initialize durable inventory storage.");
     }
   }
 
@@ -222,8 +230,6 @@ export class InventoryTransactionService {
     revision: number,
     transactions: readonly StoredTransaction[],
   ): boolean {
-    if (!this.storage) return false;
-
     const snapshot: RuntimeInventoryDurableSnapshot = {
       inventory,
       revision,
@@ -236,25 +242,27 @@ export class InventoryTransactionService {
   private recoverPreparedTransactions(): void {
     let changed = false;
 
-    for (const stored of this.transactions.values()) {
-      if (stored.record.status !== "PREPARED") continue;
+    const recovered = [...this.transactions.values()].map((stored) => {
+      if (stored.record.status !== "PREPARED") return stored;
 
-      stored.record = this.replaceStatus(
-        stored.record,
-        "ROLLED_BACK",
-      );
       changed = true;
+
+      return {
+        ...stored,
+        record: this.replaceStatus(stored.record, "ROLLED_BACK"),
+      };
+    });
+
+    if (!changed) return;
+
+    if (!this.persist(this.inventory, this.revision, recovered)) {
+      throw new Error("Unable to persist transaction recovery.");
     }
 
-    if (
-      changed &&
-      !this.persist(
-        this.inventory,
-        this.revision,
-        [...this.transactions.values()],
-      )
-    ) {
-      throw new Error("Unable to persist transaction recovery.");
+    this.transactions.clear();
+
+    for (const stored of recovered) {
+      this.transactions.set(stored.record.transactionId, stored);
     }
   }
 
@@ -273,6 +281,7 @@ export class InventoryTransactionService {
 
     if (
       !reaction ||
+      typeof reaction.id !== "string" ||
       !Array.isArray(reaction.inputs) ||
       !Array.isArray(reaction.outputs) ||
       [...reaction.inputs, ...reaction.outputs].some(
@@ -345,7 +354,6 @@ export class InventoryTransactionService {
       stored,
     ];
 
-    // WAL: PREPARED must be durable before success is returned.
     if (!this.persist(this.inventory, this.revision, nextTransactions)) {
       return failure(
         "PERSISTENCE_FAILED",
@@ -388,10 +396,9 @@ export class InventoryTransactionService {
 
     if (this.revision !== current.expectedRevision) {
       const rolledBack = this.replaceStatus(current, "ROLLED_BACK");
-      const next = { ...stored, record: rolledBack };
-
+      const nextStored = { ...stored, record: rolledBack };
       const nextTransactions = [...this.transactions.values()].map(
-        (item) => item === stored ? next : item,
+        (item) => item === stored ? nextStored : item,
       );
 
       if (!this.persist(this.inventory, this.revision, nextTransactions)) {
@@ -419,7 +426,6 @@ export class InventoryTransactionService {
       (item) => item === stored ? nextStored : item,
     );
 
-    // Persist COMMITTED + inventory + revision atomically before RAM mutation.
     if (!this.persist(nextInventory, nextRevision, nextTransactions)) {
       return failure(
         "PERSISTENCE_FAILED",
