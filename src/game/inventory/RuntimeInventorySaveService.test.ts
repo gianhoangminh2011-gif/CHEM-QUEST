@@ -1,3 +1,4 @@
+
 import { describe, expect, it } from "vitest";
 import {
   RUNTIME_INVENTORY_SAVE_KEY,
@@ -170,6 +171,11 @@ describe("RuntimeInventorySaveService", () => {
 
     expect(loadRuntimeInventory(storage)).toBeNull();
     expect(loadRuntimeInventorySnapshot(storage)).toBeNull();
+
+    storage.removeItem = () => {
+      throw new Error("Storage unavailable");
+    };
+
     expect(clearRuntimeInventorySave(storage)).toBe(false);
   });
 
