@@ -1,4 +1,3 @@
-
 import {
   applyReaction,
   type ReactionDefinition,
@@ -6,6 +5,13 @@ import {
 } from "../chemistry/ReactionEngine";
 
 import type { RuntimeInventoryState } from "./RuntimeInventorySystem";
+
+import {
+  loadRuntimeInventorySnapshot,
+  saveRuntimeInventorySnapshot,
+  type DurableInventoryTransaction,
+  type RuntimeInventoryDurableSnapshot,
+} from "./RuntimeInventorySaveService";
 
 export type InventoryTransactionStatus =
   | "PREPARED"
@@ -32,6 +38,9 @@ export type InventoryTransactionErrorCode =
   | "INVALID_MATERIAL_ID"
   | "INVALID_INVENTORY"
   | "REVISION_OVERFLOW"
+  | "PERSISTENCE_FAILED"
+  | "PERSISTENCE_UNAVAILABLE"
+  | "CORRUPTED_SAVE"
   | ReactionErrorCode;
 
 export type InventoryTransactionResult =
@@ -57,14 +66,14 @@ function freezeInventory(
   return Object.freeze({ ...resources });
 }
 
-function isValidTransactionId(value: string): boolean {
+function validTransactionId(value: string): boolean {
   return (
     typeof value === "string" &&
     /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(value)
   );
 }
 
-function isValidCrystalInventory(
+function validInventory(
   resources: Readonly<Record<string, number>>,
 ): boolean {
   if (
@@ -76,9 +85,9 @@ function isValidCrystalInventory(
   }
 
   return Object.entries(resources).every(
-    ([resourceId, quantity]) =>
-      resourceId.startsWith("crystal-") &&
-      resourceId.trim() === resourceId &&
+    ([id, quantity]) =>
+      id.startsWith("crystal-") &&
+      id.trim() === id &&
       Number.isSafeInteger(quantity) &&
       quantity >= 0,
   );
@@ -107,29 +116,77 @@ export class InventoryTransactionService {
   private inventory: RuntimeInventoryState;
   private revision: number;
   private readonly transactions = new Map<string, StoredTransaction>();
+  private readonly storage: Storage | undefined;
+  private readonly persistenceEnabled: boolean;
 
   constructor(
     initialInventory: RuntimeInventoryState,
     initialRevision = 0,
+    storage?: Storage,
   ) {
-    if (
-      !initialInventory ||
-      !isValidCrystalInventory(initialInventory.resources)
-    ) {
+    if (!validInventory(initialInventory?.resources)) {
       throw new Error("Invalid initial runtime inventory.");
     }
 
-    if (
-      !Number.isSafeInteger(initialRevision) ||
-      initialRevision < 0
-    ) {
+    if (!Number.isSafeInteger(initialRevision) || initialRevision < 0) {
       throw new Error("Invalid initial inventory revision.");
     }
 
-    this.inventory = {
-      resources: freezeInventory(initialInventory.resources),
-    };
-    this.revision = initialRevision;
+    this.storage = storage ??
+      (typeof window !== "undefined" ? window.localStorage : undefined);
+
+    this.persistenceEnabled = Boolean(this.storage);
+
+    if (!this.persistenceEnabled) {
+      throw new Error("Durable inventory storage is unavailable.");
+    }
+
+    const loaded = loadRuntimeInventorySnapshot(this.storage);
+
+    if (loaded) {
+      this.inventory = {
+        resources: freezeInventory(loaded.inventory.resources),
+      };
+      this.revision = loaded.revision;
+
+      for (const item of loaded.transactions) {
+        const record: InventoryTransactionRecord = Object.freeze({
+          transactionId: item.transactionId,
+          reactionId: item.reactionId,
+          expectedRevision: item.expectedRevision,
+          status: item.status,
+          inventoryBefore: freezeInventory(item.inventoryBefore),
+          inventoryAfter: freezeInventory(item.inventoryAfter),
+        });
+
+        this.transactions.set(item.transactionId, {
+          record,
+          fingerprint: item.fingerprint,
+        });
+      }
+
+      this.recoverPreparedTransactions();
+    } else {
+      this.inventory = {
+        resources: freezeInventory(initialInventory.resources),
+      };
+      this.revision = initialRevision;
+
+      // Do not overwrite an existing unreadable or corrupt save.
+      if (this.storage.getItem(
+        "chem-quest:runtime-inventory-save",
+      ) !== null) {
+        throw new Error("Corrupted inventory save; refusing to overwrite.");
+      }
+
+      if (!this.persist(
+        this.inventory,
+        this.revision,
+        [],
+      )) {
+        throw new Error("Unable to initialize durable inventory storage.");
+      }
+    }
   }
 
   getSnapshot(): {
@@ -144,26 +201,74 @@ export class InventoryTransactionService {
     };
   }
 
+  private toDurable(
+    stored: StoredTransaction,
+  ): DurableInventoryTransaction {
+    const record = stored.record;
+
+    return {
+      transactionId: record.transactionId,
+      reactionId: record.reactionId,
+      expectedRevision: record.expectedRevision,
+      status: record.status,
+      inventoryBefore: record.inventoryBefore,
+      inventoryAfter: record.inventoryAfter,
+      fingerprint: stored.fingerprint,
+    };
+  }
+
+  private persist(
+    inventory: RuntimeInventoryState,
+    revision: number,
+    transactions: readonly StoredTransaction[],
+  ): boolean {
+    if (!this.storage) return false;
+
+    const snapshot: RuntimeInventoryDurableSnapshot = {
+      inventory,
+      revision,
+      transactions: transactions.map((item) => this.toDurable(item)),
+    };
+
+    return saveRuntimeInventorySnapshot(snapshot, this.storage);
+  }
+
+  private recoverPreparedTransactions(): void {
+    let changed = false;
+
+    for (const stored of this.transactions.values()) {
+      if (stored.record.status !== "PREPARED") continue;
+
+      stored.record = this.replaceStatus(
+        stored.record,
+        "ROLLED_BACK",
+      );
+      changed = true;
+    }
+
+    if (
+      changed &&
+      !this.persist(
+        this.inventory,
+        this.revision,
+        [...this.transactions.values()],
+      )
+    ) {
+      throw new Error("Unable to persist transaction recovery.");
+    }
+  }
+
   prepare(
     transactionId: string,
     reaction: ReactionDefinition,
     expectedRevision = this.revision,
   ): InventoryTransactionResult {
-    if (!isValidTransactionId(transactionId)) {
-      return failure(
-        "INVALID_TRANSACTION_ID",
-        "Invalid transaction ID.",
-      );
+    if (!validTransactionId(transactionId)) {
+      return failure("INVALID_TRANSACTION_ID", "Invalid transaction ID.");
     }
 
-    if (
-      !Number.isSafeInteger(expectedRevision) ||
-      expectedRevision < 0
-    ) {
-      return failure(
-        "INVALID_REVISION",
-        "Expected revision must be a non-negative safe integer.",
-      );
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+      return failure("INVALID_REVISION", "Invalid expected revision.");
     }
 
     if (
@@ -178,10 +283,7 @@ export class InventoryTransactionService {
           material.resourceId.trim() !== material.resourceId,
       )
     ) {
-      return failure(
-        "INVALID_MATERIAL_ID",
-        "All reaction materials must use valid crystal resource IDs.",
-      );
+      return failure("INVALID_MATERIAL_ID", "Invalid reaction material ID.");
     }
 
     let fingerprint: string;
@@ -189,10 +291,7 @@ export class InventoryTransactionService {
     try {
       fingerprint = fingerprintReaction(reaction, expectedRevision);
     } catch {
-      return failure(
-        "INVALID_REACTION",
-        "Reaction definition cannot be serialized.",
-      );
+      return failure("INVALID_REACTION", "Invalid reaction definition.");
     }
 
     const existing = this.transactions.get(transactionId);
@@ -201,7 +300,7 @@ export class InventoryTransactionService {
       if (existing.fingerprint !== fingerprint) {
         return failure(
           "DUPLICATE_TRANSACTION_ID",
-          "Transaction ID was already used for a different request.",
+          "Transaction ID belongs to a different request.",
         );
       }
 
@@ -213,27 +312,18 @@ export class InventoryTransactionService {
     }
 
     if (expectedRevision !== this.revision) {
-      return failure(
-        "REVISION_CONFLICT",
-        "Inventory revision changed before preparation.",
-      );
+      return failure("REVISION_CONFLICT", "Inventory revision conflict.");
     }
 
     const before = freezeInventory(this.inventory.resources);
-    const reactionResult = applyReaction(reaction, before);
+    const result = applyReaction(reaction, before);
 
-    if (!reactionResult.success) {
-      return failure(
-        reactionResult.error,
-        reactionResult.message,
-      );
+    if (!result.success) {
+      return failure(result.error, result.message);
     }
 
-    if (!isValidCrystalInventory(reactionResult.inventory)) {
-      return failure(
-        "INVALID_MATERIAL_ID",
-        "Reaction output is incompatible with runtime inventory.",
-      );
+    if (!validInventory(result.inventory)) {
+      return failure("INVALID_INVENTORY", "Invalid reaction output.");
     }
 
     const record: InventoryTransactionRecord = Object.freeze({
@@ -242,13 +332,28 @@ export class InventoryTransactionService {
       expectedRevision,
       status: "PREPARED",
       inventoryBefore: before,
-      inventoryAfter: freezeInventory(reactionResult.inventory),
+      inventoryAfter: freezeInventory(result.inventory),
     });
 
-    this.transactions.set(transactionId, {
+    const stored: StoredTransaction = {
       record,
       fingerprint,
-    });
+    };
+
+    const nextTransactions = [
+      ...this.transactions.values(),
+      stored,
+    ];
+
+    // WAL: PREPARED must be durable before success is returned.
+    if (!this.persist(this.inventory, this.revision, nextTransactions)) {
+      return failure(
+        "PERSISTENCE_FAILED",
+        "Could not persist PREPARED transaction.",
+      );
+    }
+
+    this.transactions.set(transactionId, stored);
 
     return {
       success: true,
@@ -261,10 +366,7 @@ export class InventoryTransactionService {
     const stored = this.transactions.get(transactionId);
 
     if (!stored) {
-      return failure(
-        "TRANSACTION_NOT_FOUND",
-        "Transaction does not exist.",
-      );
+      return failure("TRANSACTION_NOT_FOUND", "Transaction not found.");
     }
 
     const current = stored.record;
@@ -280,34 +382,53 @@ export class InventoryTransactionService {
     if (current.status === "ROLLED_BACK") {
       return failure(
         "TRANSACTION_ALREADY_ROLLED_BACK",
-        "A rolled-back transaction cannot be committed.",
+        "Rolled-back transaction cannot be committed.",
       );
     }
 
     if (this.revision !== current.expectedRevision) {
       const rolledBack = this.replaceStatus(current, "ROLLED_BACK");
+      const next = { ...stored, record: rolledBack };
+
+      const nextTransactions = [...this.transactions.values()].map(
+        (item) => item === stored ? next : item,
+      );
+
+      if (!this.persist(this.inventory, this.revision, nextTransactions)) {
+        return failure("PERSISTENCE_FAILED", "Could not persist rollback.");
+      }
+
       stored.record = rolledBack;
 
-      return failure(
-        "REVISION_CONFLICT",
-        "Inventory changed after preparation; transaction was rolled back.",
-      );
+      return failure("REVISION_CONFLICT", "Transaction revision conflict.");
     }
 
     if (this.revision === Number.MAX_SAFE_INTEGER) {
-      return failure(
-        "REVISION_OVERFLOW",
-        "Inventory revision cannot be incremented safely.",
-      );
+      return failure("REVISION_OVERFLOW", "Revision overflow.");
     }
 
-    this.inventory = {
+    const nextRevision = this.revision + 1;
+    const nextInventory: RuntimeInventoryState = {
       resources: freezeInventory(current.inventoryAfter),
     };
 
-    this.revision += 1;
-
     const committed = this.replaceStatus(current, "COMMITTED");
+    const nextStored = { ...stored, record: committed };
+
+    const nextTransactions = [...this.transactions.values()].map(
+      (item) => item === stored ? nextStored : item,
+    );
+
+    // Persist COMMITTED + inventory + revision atomically before RAM mutation.
+    if (!this.persist(nextInventory, nextRevision, nextTransactions)) {
+      return failure(
+        "PERSISTENCE_FAILED",
+        "Commit was not applied because durable storage failed.",
+      );
+    }
+
+    this.inventory = nextInventory;
+    this.revision = nextRevision;
     stored.record = committed;
 
     return {
@@ -321,10 +442,7 @@ export class InventoryTransactionService {
     const stored = this.transactions.get(transactionId);
 
     if (!stored) {
-      return failure(
-        "TRANSACTION_NOT_FOUND",
-        "Transaction does not exist.",
-      );
+      return failure("TRANSACTION_NOT_FOUND", "Transaction not found.");
     }
 
     const current = stored.record;
@@ -332,7 +450,7 @@ export class InventoryTransactionService {
     if (current.status === "COMMITTED") {
       return failure(
         "TRANSACTION_ALREADY_COMMITTED",
-        "A committed transaction cannot be rolled back.",
+        "Committed transaction cannot be rolled back.",
       );
     }
 
@@ -345,6 +463,16 @@ export class InventoryTransactionService {
     }
 
     const rolledBack = this.replaceStatus(current, "ROLLED_BACK");
+    const nextStored = { ...stored, record: rolledBack };
+
+    const nextTransactions = [...this.transactions.values()].map(
+      (item) => item === stored ? nextStored : item,
+    );
+
+    if (!this.persist(this.inventory, this.revision, nextTransactions)) {
+      return failure("PERSISTENCE_FAILED", "Could not persist rollback.");
+    }
+
     stored.record = rolledBack;
 
     return {
