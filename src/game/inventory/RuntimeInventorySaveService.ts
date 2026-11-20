@@ -41,11 +41,17 @@ type SaveEnvelopeV2 = {
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+  );
 }
 
 function isInventory(value: unknown): value is RuntimeInventoryState {
-  if (!isRecord(value) || !isRecord(value.resources)) return false;
+  if (!isRecord(value) || !isRecord(value.resources)) {
+    return false;
+  }
 
   return Object.entries(value.resources).every(([id, quantity]) =>
     id.startsWith("crystal-") &&
@@ -117,7 +123,9 @@ export function saveRuntimeInventorySnapshot(
     return false;
   }
 
-  const ids = snapshot.transactions.map((item) => item.transactionId);
+  const ids = snapshot.transactions.map(
+    (item) => item.transactionId,
+  );
 
   if (new Set(ids).size !== ids.length) return false;
 
@@ -138,6 +146,7 @@ export function saveRuntimeInventorySnapshot(
       RUNTIME_INVENTORY_SAVE_KEY,
       JSON.stringify(envelope),
     );
+
     return true;
   } catch {
     return false;
@@ -148,13 +157,16 @@ export function loadRuntimeInventorySnapshot(
   storage?: Storage,
 ): RuntimeInventoryDurableSnapshot | null {
   const target = getStorage(storage);
+
   if (!target) return null;
 
   try {
     const raw = target.getItem(RUNTIME_INVENTORY_SAVE_KEY);
+
     if (!raw) return null;
 
     const parsed: unknown = JSON.parse(raw);
+
     if (!isRecord(parsed)) return null;
 
     if (parsed.schemaVersion === 1) {
@@ -183,7 +195,10 @@ export function loadRuntimeInventorySnapshot(
     const transactions =
       parsed.transactions as DurableInventoryTransaction[];
 
-    const ids = transactions.map((item) => item.transactionId);
+    const ids = transactions.map(
+      (item) => item.transactionId,
+    );
+
     if (new Set(ids).size !== ids.length) return null;
 
     return {
@@ -193,6 +208,42 @@ export function loadRuntimeInventorySnapshot(
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Updates inventory while preserving the current revision
+ * and durable transaction journal.
+ */
+export function updateRuntimeInventoryPreservingJournal(
+  inventory: RuntimeInventoryState,
+  storage?: Storage,
+): boolean {
+  const target = getStorage(storage);
+
+  if (!target || !isInventory(inventory)) {
+    return false;
+  }
+
+  try {
+    const raw = target.getItem(RUNTIME_INVENTORY_SAVE_KEY);
+    const current = loadRuntimeInventorySnapshot(target);
+
+    // Never overwrite a present but unreadable save.
+    if (raw !== null && current === null) {
+      return false;
+    }
+
+    return saveRuntimeInventorySnapshot(
+      {
+        inventory: normalizeInventory(inventory),
+        revision: current?.revision ?? 0,
+        transactions: current?.transactions ?? [],
+      },
+      target,
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -213,13 +264,16 @@ export function saveRuntimeInventory(
 export function loadRuntimeInventory(
   storage?: Storage,
 ): RuntimeInventoryState | null {
-  return loadRuntimeInventorySnapshot(storage)?.inventory ?? null;
+  return (
+    loadRuntimeInventorySnapshot(storage)?.inventory ?? null
+  );
 }
 
 export function clearRuntimeInventorySave(
   storage?: Storage,
 ): boolean {
   const target = getStorage(storage);
+
   if (!target) return false;
 
   try {
