@@ -1,356 +1,333 @@
+
+import { describe, expect, it } from "vitest";
+import {
+  RUNTIME_INVENTORY_SAVE_KEY,
+  RUNTIME_INVENTORY_SAVE_SCHEMA_VERSION,
+  clearRuntimeInventorySave,
+  loadRuntimeInventory,
+  loadRuntimeInventorySnapshot,
+  saveRuntimeInventory,
+  saveRuntimeInventorySnapshot,
+  updateRuntimeInventoryPreservingJournal,
+  type DurableInventoryTransaction,
+} from "./RuntimeInventorySaveService";
 import type { RuntimeInventoryState } from "./RuntimeInventorySystem";
 
-export const RUNTIME_INVENTORY_SAVE_KEY =
-  "chem-quest:runtime-inventory-save";
+class MemoryStorage implements Storage {
+  private readonly values = new Map<string, string>();
 
-export const RUNTIME_INVENTORY_SAVE_SCHEMA_VERSION = 2;
+  get length(): number {
+    return this.values.size;
+  }
 
-export type DurableInventoryTransaction = Readonly<{
-  transactionId: string;
-  reactionId: string;
-  expectedRevision: number;
-  status: "PREPARED" | "COMMITTED" | "ROLLED_BACK";
-  inventoryBefore: Readonly<Record<string, number>>;
-  inventoryAfter: Readonly<Record<string, number>>;
-  fingerprint: string;
-}>;
+  clear(): void {
+    this.values.clear();
+  }
 
-export type RuntimeInventoryDurableSnapshot = Readonly<{
-  inventory: RuntimeInventoryState;
-  revision: number;
-  transactions: readonly DurableInventoryTransaction[];
-}>;
+  getItem(key: string): string | null {
+    return this.values.get(key) ?? null;
+  }
 
-type SaveEnvelope = {
-  schemaVersion: number;
-  savedAt: number;
-  inventory: RuntimeInventoryState;
-  revision: number;
-  transactions: DurableInventoryTransaction[];
-};
+  key(index: number): string | null {
+    return Array.from(this.values.keys())[index] ?? null;
+  }
 
-function isRecord(
-  value: unknown,
-): value is Record<string, unknown> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value)
-  );
-}
+  removeItem(key: string): void {
+    this.values.delete(key);
+  }
 
-function getStorage(storage?: Storage): Storage | null {
-  if (storage) return storage;
-
-  try {
-    if (typeof window === "undefined") return null;
-    return window.localStorage;
-  } catch {
-    return null;
+  setItem(key: string, value: string): void {
+    this.values.set(key, String(value));
   }
 }
 
-function normalizeResources(
-  value: unknown,
-): Record<string, number> | null {
-  if (!isRecord(value)) return null;
-
-  const resources = Object.create(null) as Record<string, number>;
-
-  for (const [resourceId, quantity] of Object.entries(value)) {
-    if (
-      !resourceId.startsWith("crystal-") ||
-      resourceId.trim() !== resourceId ||
-      !Number.isSafeInteger(quantity) ||
-      (quantity as number) < 0
-    ) {
-      return null;
-    }
-
-    resources[resourceId] = quantity as number;
-  }
-
-  return resources;
-}
-
-function normalizeInventory(
-  value: unknown,
-): RuntimeInventoryState | null {
-  if (!isRecord(value)) return null;
-
-  const resources = normalizeResources(value.resources);
-
-  if (!resources) return null;
-
+function createInventory(
+  resources: Record<string, number> = {},
+): RuntimeInventoryState {
   return { resources };
 }
 
-function isValidTransaction(
-  value: unknown,
-): value is DurableInventoryTransaction {
-  if (!isRecord(value)) return false;
-
-  if (
-    typeof value.transactionId !== "string" ||
-    !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(value.transactionId) ||
-    typeof value.reactionId !== "string" ||
-    value.reactionId.length === 0 ||
-    !Number.isSafeInteger(value.expectedRevision) ||
-    (value.expectedRevision as number) < 0 ||
-    !["PREPARED", "COMMITTED", "ROLLED_BACK"].includes(
-      String(value.status),
-    ) ||
-    typeof value.fingerprint !== "string" ||
-    value.fingerprint.length === 0
-  ) {
-    return false;
-  }
-
-  return (
-    normalizeResources(value.inventoryBefore) !== null &&
-    normalizeResources(value.inventoryAfter) !== null
-  );
-}
-
-function normalizeTransaction(
-  value: DurableInventoryTransaction,
+function createTransaction(
+  overrides: Partial<DurableInventoryTransaction> = {},
 ): DurableInventoryTransaction {
   return {
-    transactionId: value.transactionId,
-    reactionId: value.reactionId,
-    expectedRevision: value.expectedRevision,
-    status: value.status,
-    inventoryBefore: normalizeResources(value.inventoryBefore)!,
-    inventoryAfter: normalizeResources(value.inventoryAfter)!,
-    fingerprint: value.fingerprint,
+    transactionId: "transaction-001",
+    reactionId: "reaction-001",
+    expectedRevision: 0,
+    status: "PREPARED",
+    inventoryBefore: { "crystal-water": 2 },
+    inventoryAfter: { "crystal-steam": 1 },
+    fingerprint: "reaction-001:water-2:steam-1",
+    ...overrides,
   };
 }
 
-function parseSnapshot(
-  raw: string,
-): RuntimeInventoryDurableSnapshot | null {
-  try {
-    const parsed: unknown = JSON.parse(raw);
+describe("RuntimeInventorySaveService", () => {
+  it("saves a versioned inventory envelope", () => {
+    const storage = new MemoryStorage();
+    const inventory = createInventory({
+      "crystal-water": 5,
+    });
 
-    if (!isRecord(parsed)) return null;
+    expect(saveRuntimeInventory(inventory, storage)).toBe(true);
 
-    const inventory = normalizeInventory(parsed.inventory);
+    const raw = storage.getItem(RUNTIME_INVENTORY_SAVE_KEY);
+    expect(raw).not.toBeNull();
 
-    if (!inventory) return null;
+    const envelope = JSON.parse(raw!);
 
-    // Migrate version 1 in memory.
-    if (parsed.schemaVersion === 1) {
-      return {
-        inventory,
-        revision: 0,
-        transactions: [],
-      };
-    }
+    expect(envelope.schemaVersion).toBe(
+      RUNTIME_INVENTORY_SAVE_SCHEMA_VERSION,
+    );
+    expect(envelope.inventory).toEqual(inventory);
+    expect(envelope.revision).toBe(0);
+    expect(envelope.transactions).toEqual([]);
+  });
 
-    if (
-      parsed.schemaVersion !== RUNTIME_INVENTORY_SAVE_SCHEMA_VERSION ||
-      !Number.isSafeInteger(parsed.revision) ||
-      (parsed.revision as number) < 0 ||
-      !Array.isArray(parsed.transactions)
-    ) {
-      return null;
-    }
+  it("keeps removed resources removed after reload", () => {
+    const storage = new MemoryStorage();
 
-    const transactions: DurableInventoryTransaction[] = [];
-    const transactionIds = new Set<string>();
+    saveRuntimeInventory(
+      createInventory({
+        "crystal-water": 5,
+        "crystal-steam": 2,
+      }),
+      storage,
+    );
 
-    for (const item of parsed.transactions) {
-      if (!isValidTransaction(item)) return null;
+    saveRuntimeInventory(
+      createInventory({
+        "crystal-water": 3,
+      }),
+      storage,
+    );
 
-      if (transactionIds.has(item.transactionId)) {
-        return null;
-      }
+    expect(loadRuntimeInventory(storage)).toEqual(
+      createInventory({
+        "crystal-water": 3,
+      }),
+    );
+  });
 
-      transactionIds.add(item.transactionId);
-      transactions.push(normalizeTransaction(item));
-    }
+  it("restores resources as a safe null-prototype record", () => {
+    const storage = new MemoryStorage();
 
-    return {
-      inventory,
-      revision: parsed.revision as number,
-      transactions,
-    };
-  } catch {
-    return null;
-  }
-}
+    saveRuntimeInventory(
+      createInventory({
+        "crystal-water": 4,
+      }),
+      storage,
+    );
 
-export function loadRuntimeInventorySnapshot(
-  storage?: Storage,
-): RuntimeInventoryDurableSnapshot | null {
-  const target = getStorage(storage);
+    const restored = loadRuntimeInventory(storage);
 
-  if (!target) return null;
+    expect(restored).not.toBeNull();
+    expect(restored!.resources["crystal-water"]).toBe(4);
+    expect(Object.getPrototypeOf(restored!.resources)).toBeNull();
+  });
 
-  try {
-    const raw = target.getItem(RUNTIME_INVENTORY_SAVE_KEY);
+  it("rejects unsupported schema versions and invalid quantities", () => {
+    const storage = new MemoryStorage();
 
-    if (raw === null) return null;
-
-    return parseSnapshot(raw);
-  } catch {
-    return null;
-  }
-}
-
-export function loadRuntimeInventory(
-  storage?: Storage,
-): RuntimeInventoryState | null {
-  return loadRuntimeInventorySnapshot(storage)?.inventory ?? null;
-}
-
-function writeSnapshot(
-  snapshot: RuntimeInventoryDurableSnapshot,
-  storage?: Storage,
-): boolean {
-  const target = getStorage(storage);
-
-  if (!target) return false;
-
-  const inventory = normalizeInventory(snapshot.inventory);
-
-  if (
-    !inventory ||
-    !Number.isSafeInteger(snapshot.revision) ||
-    snapshot.revision < 0 ||
-    !Array.isArray(snapshot.transactions)
-  ) {
-    return false;
-  }
-
-  const transactions: DurableInventoryTransaction[] = [];
-  const transactionIds = new Set<string>();
-
-  for (const item of snapshot.transactions) {
-    if (!isValidTransaction(item)) return false;
-
-    if (transactionIds.has(item.transactionId)) {
-      return false;
-    }
-
-    transactionIds.add(item.transactionId);
-    transactions.push(normalizeTransaction(item));
-  }
-
-  const envelope: SaveEnvelope = {
-    schemaVersion: RUNTIME_INVENTORY_SAVE_SCHEMA_VERSION,
-    savedAt: Date.now(),
-    inventory,
-    revision: snapshot.revision,
-    transactions,
-  };
-
-  try {
-    target.setItem(
+    storage.setItem(
       RUNTIME_INVENTORY_SAVE_KEY,
-      JSON.stringify(envelope),
+      JSON.stringify({
+        schemaVersion: 999,
+        inventory: createInventory(),
+      }),
     );
 
-    return true;
-  } catch {
-    return false;
-  }
-}
+    expect(loadRuntimeInventorySnapshot(storage)).toBeNull();
 
-export function saveRuntimeInventorySnapshot(
-  snapshot: RuntimeInventoryDurableSnapshot,
-  storage?: Storage,
-): boolean {
-  return writeSnapshot(snapshot, storage);
-}
-
-export function saveRuntimeInventory(
-  inventory: RuntimeInventoryState,
-  storage?: Storage,
-): boolean {
-  const normalized = normalizeInventory(inventory);
-
-  if (!normalized) return false;
-
-  const target = getStorage(storage);
-
-  if (!target) return false;
-
-  try {
-    const raw = target.getItem(RUNTIME_INVENTORY_SAVE_KEY);
-
-    // Do not overwrite a corrupted existing save.
-    if (raw !== null && parseSnapshot(raw) === null) {
-      return false;
-    }
-
-    return writeSnapshot(
-      {
-        inventory: normalized,
+    storage.setItem(
+      RUNTIME_INVENTORY_SAVE_KEY,
+      JSON.stringify({
+        schemaVersion: 2,
+        savedAt: Date.now(),
+        inventory: createInventory({
+          "crystal-water": -1,
+        }),
         revision: 0,
         transactions: [],
-      },
-      target,
+      }),
     );
-  } catch {
-    return false;
-  }
-}
 
-export function updateRuntimeInventoryPreservingJournal(
-  inventory: RuntimeInventoryState,
-  storage?: Storage,
-): boolean {
-  const normalized = normalizeInventory(inventory);
+    expect(loadRuntimeInventorySnapshot(storage)).toBeNull();
+  });
 
-  if (!normalized) return false;
+  it("returns null when no save exists", () => {
+    const storage = new MemoryStorage();
 
-  const target = getStorage(storage);
+    expect(loadRuntimeInventory(storage)).toBeNull();
+    expect(loadRuntimeInventorySnapshot(storage)).toBeNull();
+  });
 
-  if (!target) return false;
+  it("handles storage errors without throwing", () => {
+    const storage = new MemoryStorage();
 
-  try {
-    const raw = target.getItem(RUNTIME_INVENTORY_SAVE_KEY);
+    storage.getItem = () => {
+      throw new Error("Storage unavailable");
+    };
 
-    if (raw === null) {
-      return writeSnapshot(
+    expect(loadRuntimeInventory(storage)).toBeNull();
+    expect(loadRuntimeInventorySnapshot(storage)).toBeNull();
+
+    storage.removeItem = () => {
+      throw new Error("Storage unavailable");
+    };
+
+    expect(clearRuntimeInventorySave(storage)).toBe(false);
+  });
+
+  it("round-trips inventory, revision, and transaction journal", () => {
+    const storage = new MemoryStorage();
+
+    const snapshot = {
+      inventory: createInventory({
+        "crystal-water": 3,
+      }),
+      revision: 7,
+      transactions: [createTransaction()],
+    };
+
+    expect(
+      saveRuntimeInventorySnapshot(snapshot, storage),
+    ).toBe(true);
+
+    expect(loadRuntimeInventorySnapshot(storage)).toEqual(snapshot);
+  });
+
+  it("migrates a version 1 save in memory", () => {
+    const storage = new MemoryStorage();
+
+    storage.setItem(
+      RUNTIME_INVENTORY_SAVE_KEY,
+      JSON.stringify({
+        schemaVersion: 1,
+        savedAt: Date.now(),
+        inventory: createInventory({
+          "crystal-water": 6,
+        }),
+      }),
+    );
+
+    expect(loadRuntimeInventorySnapshot(storage)).toEqual({
+      inventory: createInventory({
+        "crystal-water": 6,
+      }),
+      revision: 0,
+      transactions: [],
+    });
+  });
+
+  it("rejects duplicate transaction IDs", () => {
+    const storage = new MemoryStorage();
+    const transaction = createTransaction();
+
+    expect(
+      saveRuntimeInventorySnapshot(
         {
-          inventory: normalized,
-          revision: 0,
-          transactions: [],
+          inventory: createInventory({
+            "crystal-water": 3,
+          }),
+          revision: 1,
+          transactions: [
+            transaction,
+            { ...transaction },
+          ],
         },
-        target,
-      );
-    }
+        storage,
+      ),
+    ).toBe(false);
+  });
 
-    const current = parseSnapshot(raw);
+  it("rejects malformed transaction journal entries", () => {
+    const storage = new MemoryStorage();
 
-    if (!current) return false;
+    expect(
+      saveRuntimeInventorySnapshot(
+        {
+          inventory: createInventory({
+            "crystal-water": 3,
+          }),
+          revision: 1,
+          transactions: [
+            createTransaction({
+              status: "INVALID" as DurableInventoryTransaction["status"],
+            }),
+          ],
+        },
+        storage,
+      ),
+    ).toBe(false);
+  });
 
-    return writeSnapshot(
+  it("preserves revision and journal when updating inventory", () => {
+    const storage = new MemoryStorage();
+
+    const transaction = createTransaction({
+      status: "COMMITTED",
+    });
+
+    saveRuntimeInventorySnapshot(
       {
-        inventory: normalized,
-        revision: current.revision,
-        transactions: current.transactions,
+        inventory: createInventory({
+          "crystal-water": 2,
+        }),
+        revision: 4,
+        transactions: [transaction],
       },
-      target,
+      storage,
     );
-  } catch {
-    return false;
-  }
-}
 
-export function clearRuntimeInventorySave(
-  storage?: Storage,
-): boolean {
-  const target = getStorage(storage);
+    expect(
+      updateRuntimeInventoryPreservingJournal(
+        createInventory({
+          "crystal-water": 1,
+        }),
+        storage,
+      ),
+    ).toBe(true);
 
-  if (!target) return false;
+    expect(loadRuntimeInventorySnapshot(storage)).toEqual({
+      inventory: createInventory({
+        "crystal-water": 1,
+      }),
+      revision: 4,
+      transactions: [transaction],
+    });
+  });
 
-  try {
-    target.removeItem(RUNTIME_INVENTORY_SAVE_KEY);
-    return true;
-  } catch {
-    return false;
-  }
-}
+  it("does not overwrite an unreadable existing save", () => {
+    const storage = new MemoryStorage();
+
+    storage.setItem(RUNTIME_INVENTORY_SAVE_KEY, "invalid-json");
+
+    expect(
+      saveRuntimeInventory(
+        createInventory({
+          "crystal-water": 5,
+        }),
+        storage,
+      ),
+    ).toBe(false);
+
+    expect(storage.getItem(RUNTIME_INVENTORY_SAVE_KEY)).toBe(
+      "invalid-json",
+    );
+  });
+
+  it("clears the saved inventory", () => {
+    const storage = new MemoryStorage();
+
+    saveRuntimeInventory(
+      createInventory({
+        "crystal-water": 5,
+      }),
+      storage,
+    );
+
+    expect(clearRuntimeInventorySave(storage)).toBe(true);
+    expect(loadRuntimeInventorySnapshot(storage)).toBeNull();
+  });
+});
