@@ -224,6 +224,13 @@ export class InventoryTransactionService {
     };
   }
 
+  getTransaction(
+    transactionId: string,
+  ): InventoryTransactionRecord | null {
+    const stored = this.transactions.get(transactionId);
+    return stored?.record ?? null;
+  }
+
   private toDurable(
     stored: StoredTransaction,
   ): DurableInventoryTransaction {
