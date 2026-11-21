@@ -1,177 +1,144 @@
 
+// @vitest-environment jsdom
+
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import RuntimeInventoryPanel from './RuntimeInventoryPanel';
+import PhaserGame from './PhaserGame';
 import {
-  collectRuntimeResource,
-  createRuntimeInventory,
-  removeRuntimeResource,
-} from './RuntimeInventorySystem';
-import type {
-  CraftingTransactionResult,
-} from '../crafting/CraftingTransactionAdapter';
+  createGameplayState,
+  updateGameplayState,
+} from './state/GameplayState';
 
-describe('RuntimeInventoryPanel — Remove 1', () => {
-  let cleanup: (() => void) | undefined;
+const phaserMock = vi.hoisted(() => ({
+  instances: [] as Array<{
+    config: any;
+    destroyCalls: number;
+    destroyRemoveCanvas?: boolean;
+    events: {
+      on: ReturnType<typeof vi.fn>;
+      off: ReturnType<typeof vi.fn>;
+    };
+    registry: {
+      get: ReturnType<typeof vi.fn>;
+    };
+  }>,
+}));
 
-  afterEach(() => {
-    cleanup?.();
-    cleanup = undefined;
-  });
+vi.mock('phaser', () => {
+  class MockGame {
+    config: any;
+    destroyCalls = 0;
+    destroyRemoveCanvas?: boolean;
 
-  const failedCraftingTransaction = (): CraftingTransactionResult => ({
-    success: false,
-    error: 'UNKNOWN_RECIPE',
-    message: 'No recipe.',
-  });
+    events = {
+      on: vi.fn(),
+      off: vi.fn(),
+    };
 
-  it('removes one unit per click and hides the resource after the last unit', () => {
-    let inventory = createRuntimeInventory();
+    registry = {
+      get: vi.fn(() => undefined),
+    };
 
-    for (let i = 0; i < 2; i += 1) {
-      const result = collectRuntimeResource(
-        inventory,
-        'crystal-540-210',
-      );
-
-      expect(result.ok).toBe(true);
-      inventory = result.state;
+    constructor(config: any) {
+      this.config = config;
+      phaserMock.instances.push(this);
     }
 
-    const onRemoveResource = vi.fn(() => ({
-      success: true,
-      message: 'Removed 1 resource.',
-    }));
+    destroy(removeCanvas?: boolean) {
+      this.destroyCalls += 1;
+      this.destroyRemoveCanvas = removeCanvas;
+    }
+  }
 
-    const host = document.createElement('div');
-    document.body.appendChild(host);
+  return {
+    default: {
+      Game: MockGame,
+      AUTO: 'AUTO',
+      Scale: {
+        FIT: 'FIT',
+        CENTER_BOTH: 'CENTER_BOTH',
+      },
+    },
+  };
+});
 
-    const root = createRoot(host);
+vi.mock('./scenes/BootScene', () => ({
+  default: class MockBootScene {},
+}));
 
-    cleanup = () => {
-      act(() => root.unmount());
-      host.remove();
-    };
+describe('PhaserGame React integration', () => {
+  beforeEach(() => {
+    phaserMock.instances.length = 0;
 
-    const render = () => {
-      act(() => {
-        root.render(
-          createElement(RuntimeInventoryPanel, {
-            inventory,
-            elements: [],
-            researchSamples: [],
-            onCraftingTransaction: failedCraftingTransaction,
-            onRemoveResource,
-          }),
-        );
-      });
-    };
-
-    const getRemoveButton = () =>
-      Array.from(host.querySelectorAll('button')).find(
-        (button) => button.textContent?.trim() === 'Remove 1',
-      );
-
-    render();
-
-    expect(host.textContent).toContain('Quantity: 2');
-
-    const firstButton = getRemoveButton();
-    expect(firstButton).toBeDefined();
-
-    act(() => firstButton?.click());
-
-    expect(onRemoveResource).toHaveBeenNthCalledWith(
-      1,
-      'crystal-540-210',
-    );
-
-    const firstRemoval = removeRuntimeResource(
-      inventory,
-      'crystal-540-210',
-      1,
-    );
-
-    expect(firstRemoval.ok).toBe(true);
-    inventory = firstRemoval.state;
-    render();
-
-    expect(host.textContent).toContain('Quantity: 1');
-
-    const secondButton = getRemoveButton();
-    expect(secondButton).toBeDefined();
-
-    act(() => secondButton?.click());
-
-    expect(onRemoveResource).toHaveBeenNthCalledWith(
-      2,
-      'crystal-540-210',
-    );
-
-    const secondRemoval = removeRuntimeResource(
-      inventory,
-      'crystal-540-210',
-      1,
-    );
-
-    expect(secondRemoval.ok).toBe(true);
-    inventory = secondRemoval.state;
-    render();
-
-    expect(host.textContent).toContain('Your inventory is empty.');
-    expect(getRemoveButton()).toBeUndefined();
-    expect(onRemoveResource).toHaveBeenCalledTimes(2);
+    (
+      globalThis as typeof globalThis & {
+        IS_REACT_ACT_ENVIRONMENT: boolean;
+      }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
   });
 
-  it('shows failure feedback without changing the displayed quantity', () => {
-    const collected = collectRuntimeResource(
-      createRuntimeInventory(),
-      'crystal-540-210',
-    );
-
-    expect(collected.ok).toBe(true);
-
-    const onRemoveResource = vi.fn(() => ({
-      success: false,
-      message: 'Simulated persistence failure.',
-    }));
+  it('creates Phaser, receives gameplay updates, and cleans up on unmount', async () => {
+    const onGameplayStateChange = vi.fn();
+    const onChemistryBridgeChange = vi.fn();
+    const onCollectResource = vi.fn(() => true);
 
     const host = document.createElement('div');
     document.body.appendChild(host);
 
     const root = createRoot(host);
 
-    cleanup = () => {
-      act(() => root.unmount());
-      host.remove();
-    };
-
-    act(() => {
+    await act(async () => {
       root.render(
-        createElement(RuntimeInventoryPanel, {
-          inventory: collected.state,
-          elements: [],
-          researchSamples: [],
-          onCraftingTransaction: failedCraftingTransaction,
-          onRemoveResource,
-        }),
+        createElement(PhaserGame, {
+          onGameplayStateChange,
+          onChemistryBridgeChange,
+          onCollectResource,
+        })
       );
     });
 
-    const button = Array.from(
-      host.querySelectorAll('button'),
-    ).find((item) => item.textContent?.trim() === 'Remove 1');
+    expect(phaserMock.instances).toHaveLength(1);
 
-    expect(button).toBeDefined();
+    const game = phaserMock.instances[0];
 
-    act(() => button?.click());
-
-    expect(onRemoveResource).toHaveBeenCalledTimes(1);
-    expect(host.textContent).toContain('Quantity: 1');
-    expect(host.textContent).toContain(
-      'Simulated persistence failure.',
+    expect(game.config.type).toBe('AUTO');
+    expect(game.config.width).toBe(960);
+    expect(game.config.height).toBe(600);
+    expect(game.config.parent).toBe(
+      host.querySelector('.phaser-game')
     );
+
+    expect(game.events.on).toHaveBeenCalledTimes(2);
+    expect(game.registry.get).toHaveBeenCalledTimes(1);
+
+    let state = createGameplayState();
+
+    state = updateGameplayState(state, {
+      type: 'COLLECT_RESOURCE',
+      id: 'integration-crystal-1',
+    });
+
+    expect(onGameplayStateChange).toHaveBeenCalledTimes(1);
+    expect(onGameplayStateChange).toHaveBeenCalledWith(state);
+
+    await act(async () => {
+      root.unmount();
+    });
+
+    expect(game.events.off).toHaveBeenCalledTimes(2);
+    expect(game.destroyCalls).toBe(1);
+    expect(game.destroyRemoveCanvas).toBe(true);
+    expect(onChemistryBridgeChange).toHaveBeenLastCalledWith(null);
+
+    state = updateGameplayState(state, {
+      type: 'COLLECT_RESOURCE',
+      id: 'integration-crystal-2',
+    });
+
+    expect(onGameplayStateChange).toHaveBeenCalledTimes(1);
+
+    host.remove();
   });
 });
