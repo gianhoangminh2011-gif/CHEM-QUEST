@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import PhaserGame from './game/PhaserGame';
 import LabPanel from './game/LabPanel';
@@ -91,15 +92,21 @@ function App() {
     }
 
     try {
-      // The service restores an existing durable snapshot when present.
-      // Otherwise this creates the initial inventory baseline.
       const service = new InventoryTransactionService(initialInventory);
       inventoryTransactions.current = service;
 
-      setRuntimeInventory(service.getSnapshot().inventory);
+      const restoredInventory = service.getSnapshot().inventory;
 
+      setRuntimeInventory(restoredInventory);
+
+      // Only mark a collection as processed if it actually exists
+      // in the durable inventory restored by the transaction service.
+      // Missing collections will be replayed by the next effect.
       for (const resourceId of gameplayState.collectedResourceIds) {
-        if (resourceId.startsWith('crystal-')) {
+        if (
+          resourceId.startsWith('crystal-') &&
+          (restoredInventory.resources[resourceId] ?? 0) > 0
+        ) {
           processedCrystalIds.current.add(resourceId);
         }
       }
@@ -134,6 +141,7 @@ function App() {
       }
 
       const snapshot = service.getSnapshot();
+
       const transition = collectRuntimeResource(
         snapshot.inventory,
         resourceId,
