@@ -422,13 +422,6 @@ export class InventoryTransactionService {
     };
   }
 
-  /**
-   * Applies a non-reaction inventory event through the same durable
-   * PREPARED -> COMMITTED journal and revision path as reactions.
-   *
-   * The existing durable schema is preserved. operationId is stored in
-   * the legacy reactionId field for compatibility with schema version 2.
-   */
   applyInventoryChange(
     transactionId: string,
     operationId: string,
