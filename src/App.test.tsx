@@ -2,7 +2,7 @@
  // @vitest-environment jsdom
 
 import { act, createElement } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from './App';
@@ -209,52 +209,91 @@ describe('App chemistry inventory integration', () => {
   });
 
   it('does not save gameplay progress when inventory persistence fails', () => {
-    const app = mountApp();
-
-    const initialGameplay = createGameplayState();
-    emitGameplayState(initialGameplay);
-
-    expect(loadGameplaySave(window.localStorage)).toEqual(
-      initialGameplay,
+    const originalDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      'localStorage',
     );
+    const backingStorage = window.localStorage;
 
-    const originalSetItem =
-      window.localStorage.setItem.bind(window.localStorage);
+    let failInventoryWrites = false;
 
-    const setItemSpy = vi
-      .spyOn(window.localStorage, 'setItem')
-      .mockImplementation((key: string, value: string) => {
-        if (key === RUNTIME_INVENTORY_SAVE_KEY) {
+    const controlledStorage: Storage = {
+      get length() {
+        return backingStorage.length;
+      },
+
+      clear: () => backingStorage.clear(),
+      getItem: (key) => backingStorage.getItem(key),
+      key: (index) => backingStorage.key(index),
+      removeItem: (key) => backingStorage.removeItem(key),
+
+      setItem: (key, value) => {
+        if (
+          failInventoryWrites &&
+          key === RUNTIME_INVENTORY_SAVE_KEY
+        ) {
           throw new Error('Simulated inventory storage failure.');
         }
 
-        originalSetItem(key, value);
-      });
+        backingStorage.setItem(key, value);
+      },
+    };
 
-    const nextGameplay = collect(
-      initialGameplay,
-      'crystal-storage-failure',
-    );
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: controlledStorage,
+    });
 
-    emitGameplayState(nextGameplay);
+    let app: ReturnType<typeof mountApp> | null = null;
 
-    expect(loadRuntimeInventorySnapshot(window.localStorage))
-      ?.toMatchObject({
+    try {
+      app = mountApp();
+
+      const initialGameplay = createGameplayState();
+      emitGameplayState(initialGameplay);
+
+      expect(loadGameplaySave(controlledStorage)).toEqual(
+        initialGameplay,
+      );
+
+      // Allow the initial save, then fail subsequent inventory writes.
+      failInventoryWrites = true;
+
+      const nextGameplay = collect(
+        initialGameplay,
+        'crystal-storage-failure',
+      );
+
+      emitGameplayState(nextGameplay);
+
+      expect(
+        loadRuntimeInventorySnapshot(controlledStorage),
+      ).toMatchObject({
         inventory: { resources: {} },
         revision: 0,
         transactions: [],
       });
 
-    // Gameplay save remains at the last safely synchronized state.
-    expect(loadGameplaySave(window.localStorage)).toEqual(
-      initialGameplay,
-    );
+      // Gameplay save must remain at the last safely synchronized state.
+      expect(loadGameplaySave(controlledStorage)).toEqual(
+        initialGameplay,
+      );
 
-    expect(
-      window.localStorage.getItem(GAMEPLAY_SAVE_KEY),
-    ).not.toBeNull();
+      expect(
+        controlledStorage.getItem(GAMEPLAY_SAVE_KEY),
+      ).not.toBeNull();
+    } finally {
+      app?.unmount();
 
-    setItemSpy.mockRestore();
-    app.unmount();
+      if (originalDescriptor) {
+        Object.defineProperty(
+          window,
+          'localStorage',
+          originalDescriptor,
+        );
+      } else {
+        delete (window as Partial<Window>).localStorage;
+      }
+    }
   });
 });
