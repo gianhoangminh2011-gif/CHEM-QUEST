@@ -1,3 +1,4 @@
+
 import {
   applyReaction,
   type ReactionDefinition,
@@ -63,6 +64,21 @@ function freezeInventory(
   resources: Readonly<Record<string, number>>,
 ): Readonly<Record<string, number>> {
   return Object.freeze({ ...resources });
+}
+
+function sameInventory(
+  left: Readonly<Record<string, number>>,
+  right: Readonly<Record<string, number>>,
+): boolean {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+
+  for (const key of keys) {
+    if ((left[key] ?? 0) !== (right[key] ?? 0)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function validTransactionId(value: string): boolean {
@@ -239,24 +255,61 @@ export class InventoryTransactionService {
   }
 
   private recoverPreparedTransactions(): void {
+    let recoveredInventory: RuntimeInventoryState = {
+      resources: freezeInventory(this.inventory.resources),
+    };
+    let recoveredRevision = this.revision;
     let changed = false;
 
     const recovered = [...this.transactions.values()].map((stored) => {
-      if (stored.record.status !== "PREPARED") return stored;
+      const record = stored.record;
+
+      if (record.status !== "PREPARED") return stored;
 
       changed = true;
 
+      const isSystemTransaction =
+        record.reactionId.startsWith("system-");
+
+      const canCompleteSystemTransaction =
+        isSystemTransaction &&
+        recoveredRevision === record.expectedRevision &&
+        recoveredRevision < Number.MAX_SAFE_INTEGER &&
+        sameInventory(
+          recoveredInventory.resources,
+          record.inventoryBefore,
+        );
+
+      if (canCompleteSystemTransaction) {
+        recoveredInventory = {
+          resources: freezeInventory(record.inventoryAfter),
+        };
+        recoveredRevision += 1;
+
+        return {
+          ...stored,
+          record: this.replaceStatus(record, "COMMITTED"),
+        };
+      }
+
+      // Preserve WP05 rollback behavior for reaction transactions.
+      // Unsafe or conflicting system transactions also roll back.
       return {
         ...stored,
-        record: this.replaceStatus(stored.record, "ROLLED_BACK"),
+        record: this.replaceStatus(record, "ROLLED_BACK"),
       };
     });
 
     if (!changed) return;
 
-    if (!this.persist(this.inventory, this.revision, recovered)) {
+    if (!this.persist(recoveredInventory, recoveredRevision, recovered)) {
       throw new Error("Unable to persist transaction recovery.");
     }
+
+    this.inventory = {
+      resources: freezeInventory(recoveredInventory.resources),
+    };
+    this.revision = recoveredRevision;
 
     this.transactions.clear();
 
