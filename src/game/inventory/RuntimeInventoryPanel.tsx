@@ -2,11 +2,18 @@
 import type { RuntimeInventoryState } from './RuntimeInventorySystem';
 import type { ElementRecord } from '../elements/ElementCatalog';
 import type { ResearchSample } from '../chemistry/ChemistrySystem';
+import type {
+  CraftingTransactionResult,
+} from '../crafting/CraftingTransactionAdapter';
 
 interface RuntimeInventoryPanelProps {
   inventory: RuntimeInventoryState;
   elements: readonly ElementRecord[];
   researchSamples: readonly ResearchSample[];
+  onCraftingTransaction: (
+    transactionId: string,
+    recipeId: string,
+  ) => CraftingTransactionResult;
 }
 
 function RuntimeInventoryPanel({
