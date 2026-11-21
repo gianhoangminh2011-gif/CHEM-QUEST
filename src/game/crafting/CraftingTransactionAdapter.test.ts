@@ -397,11 +397,6 @@ describe("CraftingTransactionAdapter", () => {
       storage,
     );
 
-    const adapter = new CraftingTransactionAdapter(
-      service,
-      registry,
-    );
-
     expect(
       service.prepare("tx-craft-011", {
         id: recipe.id,
