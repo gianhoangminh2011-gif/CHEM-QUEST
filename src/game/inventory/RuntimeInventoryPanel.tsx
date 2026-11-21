@@ -1,21 +1,16 @@
 
-import {
-  removeRuntimeResource,
-  type RuntimeInventoryState,
-} from './RuntimeInventorySystem';
+import type { RuntimeInventoryState } from './RuntimeInventorySystem';
 import type { ElementRecord } from '../elements/ElementCatalog';
 import type { ResearchSample } from '../chemistry/ChemistrySystem';
 
 interface RuntimeInventoryPanelProps {
   inventory: RuntimeInventoryState;
-  onInventoryChange: (nextInventory: RuntimeInventoryState) => void;
   elements: readonly ElementRecord[];
   researchSamples: readonly ResearchSample[];
 }
 
 function RuntimeInventoryPanel({
   inventory,
-  onInventoryChange,
   elements,
   researchSamples,
 }: RuntimeInventoryPanelProps) {
@@ -26,20 +21,12 @@ function RuntimeInventoryPanel({
     0,
   );
 
-  const handleRemove = (resourceId: string) => {
-    const result = removeRuntimeResource(inventory, resourceId, 1);
-
-    if (result.ok) {
-      onInventoryChange(result.state);
-    }
-  };
-
   return (
     <section className="inventory-panel">
       <h3>Explorer's Bag</h3>
 
       <p className="info-description">
-        Manage your collected resources.
+        View your collected resources and their current quantities.
       </p>
 
       <div className="quest-objective">
@@ -76,29 +63,6 @@ function RuntimeInventoryPanel({
               <p style={{ margin: '6px 0 12px' }}>
                 Quantity: {quantity}
               </p>
-
-              <button
-                type="button"
-                disabled={quantity <= 0}
-                onClick={() => handleRemove(resourceId)}
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  minHeight: '44px',
-                  padding: '10px',
-                  background: '#d5b878',
-                  color: '#192820',
-                  border: '1px solid #d5b878',
-                  borderRadius: '6px',
-                  fontFamily: 'inherit',
-                  fontSize: '13px',
-                  fontWeight: 800,
-                  cursor: quantity > 0 ? 'pointer' : 'not-allowed',
-                  boxSizing: 'border-box',
-                }}
-              >
-                Remove 1
-              </button>
             </div>
           ))
         )}

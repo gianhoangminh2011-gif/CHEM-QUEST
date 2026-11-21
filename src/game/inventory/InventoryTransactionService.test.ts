@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { InventoryTransactionService } from "./InventoryTransactionService";
+import { RUNTIME_INVENTORY_SAVE_KEY } from "./RuntimeInventorySaveService";
 import type { RuntimeInventoryState } from "./RuntimeInventorySystem";
 import type { ReactionDefinition } from "../chemistry/ReactionEngine";
 
@@ -55,6 +56,95 @@ const reaction: ReactionDefinition = {
 };
 
 describe("InventoryTransactionService", () => {
+  it("journals a world collection and increments the revision", () => {
+    const storage = new MemoryStorage();
+    const service = new InventoryTransactionService(
+      createInventory(),
+      0,
+      storage,
+    );
+
+    const result = service.applyInventoryChange(
+      "world-collect-crystal-water-01",
+      "system-world-collection",
+      createInventory({ "crystal-water": 1 }),
+      0,
+    );
+
+    expect(result.success).toBe(true);
+    expect(service.getSnapshot()).toEqual({
+      inventory: {
+        resources: { "crystal-water": 1 },
+      },
+      revision: 1,
+    });
+
+    const restored = new InventoryTransactionService(
+      createInventory(),
+      0,
+      storage,
+    );
+
+    expect(restored.getSnapshot()).toEqual(service.getSnapshot());
+
+    const repeated = restored.applyInventoryChange(
+      "world-collect-crystal-water-01",
+      "system-world-collection",
+      createInventory({ "crystal-water": 1 }),
+      0,
+    );
+
+    expect(repeated.success).toBe(true);
+    expect(restored.getSnapshot().revision).toBe(1);
+  });
+
+  it("rejects a stale revision for a world inventory change", () => {
+    const service = createService({ "crystal-water": 1 });
+
+    const result = service.applyInventoryChange(
+      "world-collect-crystal-water-02",
+      "system-world-collection",
+      createInventory({ "crystal-water": 2 }),
+      99,
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      error: "REVISION_CONFLICT",
+    });
+    expect(service.getSnapshot()).toEqual({
+      inventory: {
+        resources: { "crystal-water": 1 },
+      },
+      revision: 0,
+    });
+  });
+
+  it("rejects reuse of an inventory transaction ID for different data", () => {
+    const service = createService();
+
+    expect(
+      service.applyInventoryChange(
+        "world-collect-crystal-water-03",
+        "system-world-collection",
+        createInventory({ "crystal-water": 1 }),
+        0,
+      ).success,
+    ).toBe(true);
+
+    expect(
+      service.applyInventoryChange(
+        "world-collect-crystal-water-03",
+        "system-world-collection",
+        createInventory({ "crystal-water": 2 }),
+        0,
+      ),
+    ).toMatchObject({
+      success: false,
+      error: "DUPLICATE_TRANSACTION_ID",
+    });
+  });
+
   it("prepares without mutating inventory or revision", () => {
     const service = createService({ "crystal-water": 3 });
 
@@ -265,6 +355,100 @@ describe("InventoryTransactionService", () => {
 
     expect(
       restoredService.commit("tx-reload-committed"),
+    ).toMatchObject({
+      success: true,
+      record: { status: "COMMITTED" },
+      revision: 1,
+    });
+  });
+
+  it("completes a safely recoverable PREPARED system inventory event", () => {
+    const storage = new MemoryStorage();
+
+    new InventoryTransactionService(createInventory(), 0, storage);
+
+    storage.setItem(
+      RUNTIME_INVENTORY_SAVE_KEY,
+      JSON.stringify({
+        schemaVersion: 2,
+        savedAt: Date.now(),
+        inventory: { resources: {} },
+        revision: 0,
+        transactions: [
+          {
+            transactionId: "world-collect-crystal-water-recovery",
+            reactionId: "system-world-collection",
+            expectedRevision: 0,
+            status: "PREPARED",
+            inventoryBefore: {},
+            inventoryAfter: { "crystal-water": 1 },
+            fingerprint: "system-recovery-fingerprint",
+          },
+        ],
+      }),
+    );
+
+    const restoredService = new InventoryTransactionService(
+      createInventory(),
+      0,
+      storage,
+    );
+
+    expect(restoredService.getSnapshot()).toEqual({
+      inventory: {
+        resources: { "crystal-water": 1 },
+      },
+      revision: 1,
+    });
+
+    expect(
+      restoredService.commit("world-collect-crystal-water-recovery"),
+    ).toMatchObject({
+      success: true,
+      record: { status: "COMMITTED" },
+      revision: 1,
+    });
+  });
+
+  it("completes a safely recoverable PREPARED system inventory event", () => {
+    const storage = new MemoryStorage();
+
+    storage.setItem(
+      RUNTIME_INVENTORY_SAVE_KEY,
+      JSON.stringify({
+        schemaVersion: 2,
+        savedAt: Date.now(),
+        inventory: { resources: {} },
+        revision: 0,
+        transactions: [
+          {
+            transactionId: "world-collect-crystal-water-99",
+            reactionId: "system-world-collection",
+            expectedRevision: 0,
+            status: "PREPARED",
+            inventoryBefore: {},
+            inventoryAfter: { "crystal-water": 1 },
+            fingerprint: "system-world-collection-fingerprint",
+          },
+        ],
+      }),
+    );
+
+    const restored = new InventoryTransactionService(
+      createInventory(),
+      0,
+      storage,
+    );
+
+    expect(restored.getSnapshot()).toEqual({
+      inventory: {
+        resources: { "crystal-water": 1 },
+      },
+      revision: 1,
+    });
+
+    expect(
+      restored.commit("world-collect-crystal-water-99"),
     ).toMatchObject({
       success: true,
       record: { status: "COMMITTED" },
