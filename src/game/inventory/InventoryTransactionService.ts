@@ -369,6 +369,116 @@ export class InventoryTransactionService {
     };
   }
 
+  /**
+   * Applies a non-reaction inventory event through the same durable
+   * PREPARED -> COMMITTED journal and revision path as reactions.
+   *
+   * The existing durable schema is preserved. operationId is stored in
+   * the legacy reactionId field for compatibility with schema version 2.
+   */
+  applyInventoryChange(
+    transactionId: string,
+    operationId: string,
+    nextInventory: RuntimeInventoryState,
+    expectedRevision = this.revision,
+  ): InventoryTransactionResult {
+    if (!validTransactionId(transactionId)) {
+      return failure("INVALID_TRANSACTION_ID", "Invalid transaction ID.");
+    }
+
+    if (
+      !validTransactionId(operationId) ||
+      !operationId.startsWith("system-")
+    ) {
+      return failure("INVALID_TRANSACTION_ID", "Invalid system operation ID.");
+    }
+
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+      return failure("INVALID_REVISION", "Invalid expected revision.");
+    }
+
+    if (!validInventory(nextInventory?.resources)) {
+      return failure("INVALID_INVENTORY", "Invalid inventory change.");
+    }
+
+    const normalizedAfter = freezeInventory(nextInventory.resources);
+    const fingerprint = JSON.stringify({
+      operationId,
+      expectedRevision,
+      inventoryAfter: Object.fromEntries(
+        Object.entries(normalizedAfter).sort(([a], [b]) =>
+          a.localeCompare(b),
+        ),
+      ),
+    });
+
+    const existing = this.transactions.get(transactionId);
+
+    if (existing) {
+      if (existing.fingerprint !== fingerprint) {
+        return failure(
+          "DUPLICATE_TRANSACTION_ID",
+          "Transaction ID belongs to a different inventory change.",
+        );
+      }
+
+      if (existing.record.status === "ROLLED_BACK") {
+        return failure(
+          "TRANSACTION_ALREADY_ROLLED_BACK",
+          "This inventory change was already rolled back.",
+        );
+      }
+
+      if (existing.record.status === "COMMITTED") {
+        return {
+          success: true,
+          record: existing.record,
+          revision: this.revision,
+        };
+      }
+
+      return this.commit(transactionId);
+    }
+
+    if (expectedRevision !== this.revision) {
+      return failure("REVISION_CONFLICT", "Inventory revision conflict.");
+    }
+
+    if (this.revision === Number.MAX_SAFE_INTEGER) {
+      return failure("REVISION_OVERFLOW", "Revision overflow.");
+    }
+
+    const record: InventoryTransactionRecord = Object.freeze({
+      transactionId,
+      reactionId: operationId,
+      expectedRevision,
+      status: "PREPARED",
+      inventoryBefore: freezeInventory(this.inventory.resources),
+      inventoryAfter: normalizedAfter,
+    });
+
+    const stored: StoredTransaction = {
+      record,
+      fingerprint,
+    };
+
+    const nextTransactions = [
+      ...this.transactions.values(),
+      stored,
+    ];
+
+    if (!this.persist(this.inventory, this.revision, nextTransactions)) {
+      return failure(
+        "PERSISTENCE_FAILED",
+        "Could not persist PREPARED inventory change.",
+      );
+    }
+
+    this.transactions.set(transactionId, stored);
+
+    return this.commit(transactionId);
+  }
+
   commit(transactionId: string): InventoryTransactionResult {
     const stored = this.transactions.get(transactionId);
 

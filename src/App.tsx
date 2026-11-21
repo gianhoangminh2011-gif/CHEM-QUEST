@@ -17,10 +17,7 @@ import {
   createRuntimeInventory,
   type RuntimeInventoryState,
 } from './game/inventory/RuntimeInventorySystem';
-import {
-  loadRuntimeInventory,
-  updateRuntimeInventoryPreservingJournal,
-} from './game/inventory/RuntimeInventorySaveService';
+import { InventoryTransactionService } from './game/inventory/InventoryTransactionService';
 import {
   isAnalysed,
   type AnalysisResult,
@@ -49,6 +46,8 @@ function App() {
     useState(false);
 
   const processedCrystalIds = useRef(new Set<string>());
+  const inventoryTransactions =
+    useRef<InventoryTransactionService | null>(null);
 
   const handleGameplayStateChange = useCallback(
     (nextState: GameplayState) => {
@@ -65,21 +64,6 @@ function App() {
     []
   );
 
-  const handleInventoryChange = useCallback(
-    (nextInventory: RuntimeInventoryState) => {
-      setRuntimeInventory(nextInventory);
-
-      const saved = updateRuntimeInventoryPreservingJournal(
-        nextInventory,
-      );
-
-      if (!saved) {
-        console.error('CHEM QUEST: Inventory save failed.');
-      }
-    },
-    []
-  );
-
   useEffect(() => {
     if (!hasReceivedGameplayState) return;
 
@@ -91,44 +75,42 @@ function App() {
       return;
     }
 
-    const savedInventory = loadRuntimeInventory();
+    let initialInventory = createRuntimeInventory();
 
-    if (savedInventory !== null) {
-      setRuntimeInventory(savedInventory);
-    } else {
-      let initialInventory = createRuntimeInventory();
+    for (const resourceId of gameplayState.collectedResourceIds) {
+      if (!resourceId.startsWith('crystal-')) continue;
+
+      const result = collectRuntimeResource(
+        initialInventory,
+        resourceId,
+      );
+
+      if (result.ok) {
+        initialInventory = result.state;
+      }
+    }
+
+    try {
+      // The service restores an existing durable snapshot when present.
+      // Otherwise this creates the initial inventory baseline.
+      const service = new InventoryTransactionService(initialInventory);
+      inventoryTransactions.current = service;
+
+      setRuntimeInventory(service.getSnapshot().inventory);
 
       for (const resourceId of gameplayState.collectedResourceIds) {
-        if (!resourceId.startsWith('crystal-')) continue;
-
-        const result = collectRuntimeResource(
-          initialInventory,
-          resourceId
-        );
-
-        if (result.ok) {
-          initialInventory = result.state;
+        if (resourceId.startsWith('crystal-')) {
+          processedCrystalIds.current.add(resourceId);
         }
       }
 
-      setRuntimeInventory(initialInventory);
-
-      const saved = updateRuntimeInventoryPreservingJournal(
-        initialInventory,
+      setHasHydratedRuntimeInventory(true);
+    } catch (error) {
+      console.error(
+        'CHEM QUEST: Runtime inventory initialization failed.',
+        error,
       );
-
-      if (!saved) {
-        console.error('CHEM QUEST: Initial inventory save failed.');
-      }
     }
-
-    for (const resourceId of gameplayState.collectedResourceIds) {
-      if (resourceId.startsWith('crystal-')) {
-        processedCrystalIds.current.add(resourceId);
-      }
-    }
-
-    setHasHydratedRuntimeInventory(true);
   }, [
     hasReceivedGameplayState,
     hasHydratedRuntimeInventory,
@@ -138,7 +120,9 @@ function App() {
   useEffect(() => {
     if (!hasHydratedRuntimeInventory) return;
 
-    let nextInventory = runtimeInventory;
+    const service = inventoryTransactions.current;
+    if (!service) return;
+
     let changed = false;
 
     for (const resourceId of gameplayState.collectedResourceIds) {
@@ -149,46 +133,48 @@ function App() {
         continue;
       }
 
-      const result = collectRuntimeResource(
-        nextInventory,
-        resourceId
+      const snapshot = service.getSnapshot();
+      const transition = collectRuntimeResource(
+        snapshot.inventory,
+        resourceId,
       );
 
-      if (result.ok) {
-        nextInventory = result.state;
-        processedCrystalIds.current.add(resourceId);
-        changed = true;
+      if (!transition.ok) {
+        console.error(
+          'CHEM QUEST: Invalid world collection event.',
+          resourceId,
+          transition.error,
+        );
+        continue;
       }
+
+      const result = service.applyInventoryChange(
+        `world-collect-${resourceId}`,
+        'system-world-collection',
+        transition.state,
+        snapshot.revision,
+      );
+
+      if (!result.success) {
+        console.error(
+          'CHEM QUEST: World collection transaction failed.',
+          result.error,
+          result.message,
+        );
+        continue;
+      }
+
+      processedCrystalIds.current.add(resourceId);
+      changed = true;
     }
 
     if (changed) {
-      setRuntimeInventory(nextInventory);
-
-      const saved = updateRuntimeInventoryPreservingJournal(
-        nextInventory,
-      );
-
-      if (!saved) {
-        console.error('CHEM QUEST: Inventory update save failed.');
-      }
+      setRuntimeInventory(service.getSnapshot().inventory);
     }
   }, [
     hasHydratedRuntimeInventory,
     gameplayState.collectedResourceIds,
-    runtimeInventory,
   ]);
-
-  useEffect(() => {
-    if (!hasHydratedRuntimeInventory) return;
-
-    const saved = updateRuntimeInventoryPreservingJournal(
-      runtimeInventory,
-    );
-
-    if (!saved) {
-      console.error('CHEM QUEST: Inventory synchronization failed.');
-    }
-  }, [runtimeInventory, hasHydratedRuntimeInventory]);
 
   const crystalCount = gameplayState.collectedResourceIds.length;
 
@@ -429,7 +415,6 @@ function App() {
           {activePanel === 'bag' && (
             <RuntimeInventoryPanel
               inventory={runtimeInventory}
-              onInventoryChange={handleInventoryChange}
               elements={elementRecords}
               researchSamples={researchSamples}
             />
