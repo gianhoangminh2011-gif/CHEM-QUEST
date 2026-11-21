@@ -1,4 +1,3 @@
-
 import Phaser from 'phaser';
 import Player from '../entities/Player';
 import {
@@ -29,6 +28,10 @@ type WorldInteractable = {
 };
 
 export default class BootScene extends Phaser.Scene {
+  private readonly onCollectResource: (
+    resourceId: string
+  ) => boolean;
+
   private player!: Player;
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
 
@@ -76,8 +79,11 @@ export default class BootScene extends Phaser.Scene {
   private readonly mapRadiusX = 350;
   private readonly mapRadiusY = 175;
 
-  constructor() {
+  constructor(
+    onCollectResource: (resourceId: string) => boolean = () => false
+  ) {
     super('BootScene');
+    this.onCollectResource = onCollectResource;
   }
 
   private getCrystalId(x: number, y: number): string {
@@ -901,18 +907,28 @@ export default class BootScene extends Phaser.Scene {
     if (distance > this.interactionRange) return;
 
     if (target.kind === 'crystal') {
-      target.used = true;
-      target.object.destroy();
+      const resourceId = this.getCrystalId(target.x, target.y);
 
-      this.collectedCrystalCount++;
+      // Inventory must commit successfully before the quest state changes.
+      if (!this.onCollectResource(resourceId)) {
+        this.showInteractionFeedback(
+          'INVENTORY SAVE FAILED'
+        );
+        return;
+      }
 
       this.gameplayState = updateGameplayState(
         this.gameplayState,
         {
           type: 'COLLECT_RESOURCE',
-          id: this.getCrystalId(target.x, target.y),
+          id: resourceId,
         }
       );
+
+      target.used = true;
+      target.object.destroy();
+
+      this.collectedCrystalCount++;
 
       this.elementCounter.setText(
         `ELEMENTS: ${this.collectedCrystalCount}/3`
