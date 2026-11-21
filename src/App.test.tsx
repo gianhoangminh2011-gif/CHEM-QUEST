@@ -1,5 +1,5 @@
 
- // @vitest-environment jsdom
+// @vitest-environment jsdom
 
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -292,7 +292,7 @@ describe('App chemistry inventory integration', () => {
           originalDescriptor,
         );
       } else {
-        delete (window as Partial<Window>).localStorage;
+        Reflect.deleteProperty(window, 'localStorage');
       }
     }
   });
