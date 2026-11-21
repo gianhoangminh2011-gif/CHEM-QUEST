@@ -1,4 +1,5 @@
 
+import { useState } from 'react';
 import type { RuntimeInventoryState } from './RuntimeInventorySystem';
 import type { ElementRecord } from '../elements/ElementCatalog';
 import type { ResearchSample } from '../chemistry/ChemistrySystem';
@@ -14,19 +15,46 @@ interface RuntimeInventoryPanelProps {
     transactionId: string,
     recipeId: string,
   ) => CraftingTransactionResult;
+  onRemoveResource: (
+    resourceId: string,
+  ) => {
+    success: boolean;
+    message?: string;
+  };
 }
 
 function RuntimeInventoryPanel({
   inventory,
   elements,
   researchSamples,
+  onRemoveResource,
 }: RuntimeInventoryPanelProps) {
+  const [feedback, setFeedback] = useState<{
+    resourceId: string;
+    message: string;
+    success: boolean;
+  } | null>(null);
+
   const resources = Object.entries(inventory.resources);
 
   const totalQuantity = resources.reduce(
     (total, [, quantity]) => total + quantity,
     0,
   );
+
+  const handleRemove = (resourceId: string) => {
+    const result = onRemoveResource(resourceId);
+
+    setFeedback({
+      resourceId,
+      message: result.message ?? (
+        result.success
+          ? 'Removed 1 resource.'
+          : 'Unable to remove resource.'
+      ),
+      success: result.success,
+    });
+  };
 
   return (
     <section className="inventory-panel">
@@ -70,6 +98,26 @@ function RuntimeInventoryPanel({
               <p style={{ margin: '6px 0 12px' }}>
                 Quantity: {quantity}
               </p>
+
+              <button
+                type="button"
+                onClick={() => handleRemove(resourceId)}
+                disabled={quantity <= 0}
+              >
+                Remove 1
+              </button>
+
+              {feedback?.resourceId === resourceId && (
+                <p
+                  role="status"
+                  style={{
+                    margin: '8px 0 0',
+                    color: feedback.success ? '#a7e3b1' : '#ffaaaa',
+                  }}
+                >
+                  {feedback.message}
+                </p>
+              )}
             </div>
           ))
         )}
