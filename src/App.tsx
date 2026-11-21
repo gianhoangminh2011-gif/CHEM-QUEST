@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 import PhaserGame from './game/PhaserGame';
 import LabPanel from './game/LabPanel';
@@ -76,6 +75,77 @@ function App() {
       setChemistryBridge(bridge);
     },
     []
+  );
+
+  // Commit the durable inventory transaction BEFORE updating GameplayState.
+  // This prevents Quest progress from advancing when inventory persistence fails.
+  const handleCollectResource = useCallback(
+    (resourceId: string): boolean => {
+      const service = inventoryTransactions.current;
+
+      if (!service || !hasHydratedRuntimeInventory) {
+        return false;
+      }
+
+      if (processedCrystalIds.current.has(resourceId)) {
+        return true;
+      }
+
+      const transactionId = `world-collect-${resourceId}`;
+      const existing = service.getTransaction(transactionId);
+
+      if (existing) {
+        if (existing.status !== 'COMMITTED') {
+          inventorySyncFailed.current = true;
+          return false;
+        }
+
+        processedCrystalIds.current.add(resourceId);
+        setRuntimeInventory(service.getSnapshot().inventory);
+        return true;
+      }
+
+      const snapshot = service.getSnapshot();
+
+      const transition = collectRuntimeResource(
+        snapshot.inventory,
+        resourceId,
+      );
+
+      if (!transition.ok) {
+        inventorySyncFailed.current = true;
+        console.error(
+          'CHEM QUEST: Invalid world collection event.',
+          resourceId,
+          transition.error,
+        );
+        return false;
+      }
+
+      const result = service.applyInventoryChange(
+        transactionId,
+        'system-world-collection',
+        transition.state,
+        snapshot.revision,
+      );
+
+      if (!result.success || result.record.status !== 'COMMITTED') {
+        inventorySyncFailed.current = true;
+        console.error(
+          'CHEM QUEST: World collection transaction failed.',
+          result.success ? result.record.status : result.error,
+          result.success ? '' : result.message,
+        );
+        return false;
+      }
+
+      processedCrystalIds.current.add(resourceId);
+      inventorySyncFailed.current = false;
+      setRuntimeInventory(service.getSnapshot().inventory);
+
+      return true;
+    },
+    [hasHydratedRuntimeInventory],
   );
 
   const handleRemoveResource = useCallback(
@@ -263,74 +333,6 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (!hasHydratedRuntimeInventory) return;
-
-    const service = inventoryTransactions.current;
-
-    inventorySyncFailed.current = false;
-
-    if (!service) {
-      inventorySyncFailed.current = true;
-      return;
-    }
-
-    let changed = false;
-
-    for (const resourceId of gameplayState.collectedResourceIds) {
-      if (
-        !resourceId.startsWith('crystal-') ||
-        processedCrystalIds.current.has(resourceId)
-      ) {
-        continue;
-      }
-
-      const snapshot = service.getSnapshot();
-
-      const transition = collectRuntimeResource(
-        snapshot.inventory,
-        resourceId,
-      );
-
-      if (!transition.ok) {
-        inventorySyncFailed.current = true;
-        console.error(
-          'CHEM QUEST: Invalid world collection event.',
-          resourceId,
-          transition.error,
-        );
-        continue;
-      }
-
-      const result = service.applyInventoryChange(
-        `world-collect-${resourceId}`,
-        'system-world-collection',
-        transition.state,
-        snapshot.revision,
-      );
-
-      if (!result.success) {
-        inventorySyncFailed.current = true;
-        console.error(
-          'CHEM QUEST: World collection transaction failed.',
-          result.error,
-          result.message,
-        );
-        continue;
-      }
-
-      processedCrystalIds.current.add(resourceId);
-      changed = true;
-    }
-
-    if (changed) {
-      setRuntimeInventory(service.getSnapshot().inventory);
-    }
-  }, [
-    hasHydratedRuntimeInventory,
-    gameplayState.collectedResourceIds,
-  ]);
-
-  useEffect(() => {
     if (
       !hasReceivedGameplayState ||
       !hasHydratedRuntimeInventory ||
@@ -492,6 +494,7 @@ function App() {
             <PhaserGame
               onGameplayStateChange={handleGameplayStateChange}
               onChemistryBridgeChange={handleChemistryBridgeChange}
+              onCollectResource={handleCollectResource}
             />
           </section>
 
