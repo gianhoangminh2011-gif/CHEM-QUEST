@@ -20,6 +20,9 @@ import {
   type RuntimeInventoryState,
 } from './game/inventory/RuntimeInventorySystem';
 import { InventoryTransactionService } from './game/inventory/InventoryTransactionService';
+import {
+  loadRuntimeInventorySnapshot,
+} from './game/inventory/RuntimeInventorySaveService';
 import { CraftingTransactionAdapter } from './game/crafting/CraftingTransactionAdapter';
 import {
   isAnalysed,
@@ -199,10 +202,49 @@ function App() {
 
       setRuntimeInventory(restoredInventory);
 
-      // Historical collection events must not be replayed after hydration.
-      // This prevents removed resources from being collected again on reload.
+      // Reconcile historical collection events against the durable journal.
+      // A committed collection or removal must not be replayed after reload.
+      const durableSnapshot = loadRuntimeInventorySnapshot();
+
+      const removedResourceIds = new Set<string>();
+
+      for (const transaction of durableSnapshot?.transactions ?? []) {
+        if (
+          transaction.status !== 'COMMITTED' ||
+          transaction.reactionId !== 'system-inventory-remove'
+        ) {
+          continue;
+        }
+
+        for (const [resourceId, previousQuantity] of Object.entries(
+          transaction.inventoryBefore,
+        )) {
+          const nextQuantity =
+            transaction.inventoryAfter[resourceId] ?? 0;
+
+          if (previousQuantity > nextQuantity) {
+            removedResourceIds.add(resourceId);
+          }
+        }
+      }
+
       for (const resourceId of gameplayState.collectedResourceIds) {
-        if (resourceId.startsWith('crystal-')) {
+        if (!resourceId.startsWith('crystal-')) continue;
+
+        const collectionTransaction =
+          service.getTransaction(`world-collect-${resourceId}`);
+
+        const hasCommittedCollection =
+          collectionTransaction?.status === 'COMMITTED';
+
+        const existsInDurableInventory =
+          (restoredInventory.resources[resourceId] ?? 0) > 0;
+
+        if (
+          existsInDurableInventory ||
+          hasCommittedCollection ||
+          removedResourceIds.has(resourceId)
+        ) {
           processedCrystalIds.current.add(resourceId);
         }
       }
