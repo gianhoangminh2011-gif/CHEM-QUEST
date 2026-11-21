@@ -16,6 +16,7 @@ import RuntimeInventoryPanel from './game/inventory/RuntimeInventoryPanel';
 import {
   collectRuntimeResource,
   createRuntimeInventory,
+  removeRuntimeResource,
   type RuntimeInventoryState,
 } from './game/inventory/RuntimeInventorySystem';
 import { InventoryTransactionService } from './game/inventory/InventoryTransactionService';
@@ -55,6 +56,8 @@ function App() {
   const craftingTransactions =
     useRef<CraftingTransactionAdapter | null>(null);
 
+  const inventoryRemovalSequence = useRef(0);
+
   const inventorySyncFailed = useRef(false);
 
   const handleGameplayStateChange = useCallback(
@@ -70,6 +73,69 @@ function App() {
       setChemistryBridge(bridge);
     },
     []
+  );
+
+  const handleRemoveResource = useCallback(
+    (resourceId: string) => {
+      const service = inventoryTransactions.current;
+
+      if (!service || !hasHydratedRuntimeInventory) {
+        return {
+          success: false,
+          message: 'Inventory service is not initialized.',
+        };
+      }
+
+      const snapshot = service.getSnapshot();
+
+      const transition = removeRuntimeResource(
+        snapshot.inventory,
+        resourceId,
+        1,
+      );
+
+      if (!transition.ok) {
+        const messages = {
+          INVALID_RESOURCE_ID: 'Invalid resource ID.',
+          INVALID_QUANTITY: 'Invalid removal quantity.',
+          INSUFFICIENT_RESOURCE: 'Not enough resources to remove.',
+        };
+
+        return {
+          success: false,
+          message: transition.error
+            ? messages[transition.error]
+            : 'Unable to remove resource.',
+        };
+      }
+
+      inventoryRemovalSequence.current += 1;
+
+      const transactionId =
+        `inventory-remove-${Date.now()}-${inventoryRemovalSequence.current}`;
+
+      const result = service.applyInventoryChange(
+        transactionId,
+        'system-inventory-remove',
+        transition.state,
+        snapshot.revision,
+      );
+
+      if (!result.success) {
+        return {
+          success: false,
+          message: result.message,
+        };
+      }
+
+      setRuntimeInventory(service.getSnapshot().inventory);
+
+      return {
+        success: true,
+        message: 'Removed 1 resource.',
+      };
+    },
+    [hasHydratedRuntimeInventory],
   );
 
   const handleCraftingTransaction = useCallback(
@@ -481,6 +547,7 @@ function App() {
               elements={elementRecords}
               researchSamples={researchSamples}
               onCraftingTransaction={handleCraftingTransaction}
+              onRemoveResource={handleRemoveResource}
             />
           )}
 
