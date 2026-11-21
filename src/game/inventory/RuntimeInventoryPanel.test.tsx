@@ -9,6 +9,9 @@ import {
   createRuntimeInventory,
   removeRuntimeResource,
 } from './RuntimeInventorySystem';
+import type {
+  CraftingTransactionResult,
+} from '../crafting/CraftingTransactionAdapter';
 
 describe('RuntimeInventoryPanel — Remove 1', () => {
   let cleanup: (() => void) | undefined;
@@ -16,6 +19,12 @@ describe('RuntimeInventoryPanel — Remove 1', () => {
   afterEach(() => {
     cleanup?.();
     cleanup = undefined;
+  });
+
+  const failedCraftingTransaction = (): CraftingTransactionResult => ({
+    success: false,
+    error: 'UNKNOWN_RECIPE',
+    message: 'No recipe.',
   });
 
   it('removes one unit per click and hides the resource after the last unit', () => {
@@ -53,11 +62,7 @@ describe('RuntimeInventoryPanel — Remove 1', () => {
             inventory,
             elements: [],
             researchSamples: [],
-            onCraftingTransaction: () => ({
-              success: false,
-              error: 'UNKNOWN_RECIPE',
-              message: 'No recipe.',
-            }),
+            onCraftingTransaction: failedCraftingTransaction,
             onRemoveResource,
           }),
         );
@@ -149,11 +154,7 @@ describe('RuntimeInventoryPanel — Remove 1', () => {
           inventory: collected.state,
           elements: [],
           researchSamples: [],
-          onCraftingTransaction: () => ({
-            success: false,
-            error: 'UNKNOWN_RECIPE',
-            message: 'No recipe.',
-          }),
+          onCraftingTransaction: failedCraftingTransaction,
           onRemoveResource,
         }),
       );
