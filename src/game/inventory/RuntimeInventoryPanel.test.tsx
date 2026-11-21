@@ -23,7 +23,7 @@ describe('RuntimeInventoryPanel — Remove 1', () => {
 
   const failedCraftingTransaction = (): CraftingTransactionResult => ({
     success: false,
-    error: 'UNKNOWN_RECIPE',
+    error: 'UNKNOWN_RECIPE' as const,
     message: 'No recipe.',
   });
 
