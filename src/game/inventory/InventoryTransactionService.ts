@@ -231,6 +231,13 @@ export class InventoryTransactionService {
     return stored?.record ?? null;
   }
 
+  // Returns a read-only snapshot of the durable transaction journal.
+  getTransactions(): readonly InventoryTransactionRecord[] {
+    return Object.freeze(
+      [...this.transactions.values()].map((stored) => stored.record),
+    );
+  }
+
   private toDurable(
     stored: StoredTransaction,
   ): DurableInventoryTransaction {
@@ -299,8 +306,6 @@ export class InventoryTransactionService {
         };
       }
 
-      // Preserve WP05 rollback behavior for reaction transactions.
-      // Unsafe or conflicting system transactions also roll back.
       return {
         ...stored,
         record: this.replaceStatus(record, "ROLLED_BACK"),
