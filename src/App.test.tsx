@@ -1,3 +1,4 @@
+
 // @vitest-environment jsdom
 
 import { act, createElement } from 'react';
@@ -27,6 +28,13 @@ const appHarness = vi.hoisted(() => ({
   onCraftingTransaction:
     null as
       | ((transactionId: string, recipeId: string) => { success: boolean })
+      | null,
+  onRemoveResource:
+    null as
+      | ((resourceId: string) => {
+          success: boolean;
+          message?: string;
+        })
       | null,
 }));
 
@@ -125,8 +133,15 @@ vi.mock('./game/inventory/RuntimeInventoryPanel', () => ({
       transactionId: string,
       recipeId: string,
     ) => { success: boolean };
+    onRemoveResource: (
+      resourceId: string,
+    ) => {
+      success: boolean;
+      message?: string;
+    };
   }) => {
     appHarness.onCraftingTransaction = props.onCraftingTransaction;
+    appHarness.onRemoveResource = props.onRemoveResource;
 
     return createElement(
       'section',
@@ -159,6 +174,15 @@ vi.mock('./game/inventory/RuntimeInventoryPanel', () => ({
             ),
         },
         'Run failed test transaction',
+      ),
+      createElement(
+        'button',
+        {
+          'data-testid': 'remove-resource',
+          onClick: () =>
+            props.onRemoveResource('crystal-test-input'),
+        },
+        'Remove test resource',
       ),
     );
   },
@@ -211,11 +235,14 @@ function openInventory(host: HTMLElement) {
   }
 
   act(() => inventoryNav.click());
-}describe('App chemistry inventory integration', () => {
+}
+
+describe('App chemistry inventory integration', () => {
   beforeEach(() => {
     window.localStorage.clear();
     appHarness.onGameplayStateChange = null;
     appHarness.onCraftingTransaction = null;
+    appHarness.onRemoveResource = null;
 
     (
       globalThis as typeof globalThis & {
@@ -414,7 +441,9 @@ function openInventory(host: HTMLElement) {
         Reflect.deleteProperty(window, 'localStorage');
       }
     }
-  });  it('refreshes React inventory from the transaction service after successful crafting', () => {
+  });
+
+  it('refreshes React inventory from the transaction service after successful crafting', () => {
     const gameplay = collect(
       createGameplayState(),
       'crystal-test-input',
@@ -500,5 +529,159 @@ function openInventory(host: HTMLElement) {
     expect(snapshot?.revision).toBe(0);
 
     app.unmount();
+  });
+
+  it('removes one resource durably and does not restore it after reload', () => {
+    const gameplay = collect(
+      createGameplayState(),
+      'crystal-test-input',
+    );
+
+    const firstApp = mountApp();
+    emitGameplayState(gameplay);
+    openInventory(firstApp.host);
+
+    const before = loadRuntimeInventorySnapshot(
+      window.localStorage,
+    );
+
+    expect(before?.inventory.resources['crystal-test-input']).toBe(1);
+
+    const removeButton = firstApp.host.querySelector(
+      '[data-testid="remove-resource"]',
+    ) as HTMLButtonElement | null;
+
+    expect(removeButton).not.toBeNull();
+
+    act(() => removeButton?.click());
+
+    const after = loadRuntimeInventorySnapshot(
+      window.localStorage,
+    );
+
+    expect(after?.inventory.resources).toEqual({});
+    expect(after?.revision).toBe(1);
+    expect(after?.transactions).toHaveLength(1);
+    expect(after?.transactions[0]).toMatchObject({
+      reactionId: 'system-inventory-remove',
+      status: 'COMMITTED',
+      expectedRevision: 0,
+    });
+
+    // Removing inventory must not erase collection history or quest progress.
+    expect(loadGameplaySave(window.localStorage)).toEqual(gameplay);
+
+    firstApp.unmount();
+
+    // Reload the same gameplay history and durable inventory.
+    const secondApp = mountApp();
+    emitGameplayState(gameplay);
+    openInventory(secondApp.host);
+
+    const reloaded = loadRuntimeInventorySnapshot(
+      window.localStorage,
+    );
+
+    expect(reloaded?.inventory.resources).toEqual({});
+    expect(reloaded?.revision).toBe(1);
+    expect(
+      secondApp.host.querySelector('[data-testid="inventory-state"]')
+        ?.textContent,
+    ).toContain('{}');
+
+    secondApp.unmount();
+  });
+
+  it('keeps React and durable inventory unchanged when removal persistence fails', () => {
+    const originalDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      'localStorage',
+    );
+    const backingStorage = window.localStorage;
+
+    let failInventoryWrites = false;
+
+    const controlledStorage: Storage = {
+      get length() {
+        return backingStorage.length;
+      },
+      clear: () => backingStorage.clear(),
+      getItem: (key) => backingStorage.getItem(key),
+      key: (index) => backingStorage.key(index),
+      removeItem: (key) => backingStorage.removeItem(key),
+      setItem: (key, value) => {
+        if (
+          failInventoryWrites &&
+          key === RUNTIME_INVENTORY_SAVE_KEY
+        ) {
+          throw new Error('Simulated inventory storage failure.');
+        }
+
+        backingStorage.setItem(key, value);
+      },
+    };
+
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: controlledStorage,
+    });
+
+    let app: ReturnType<typeof mountApp> | null = null;
+
+    try {
+      const gameplay = collect(
+        createGameplayState(),
+        'crystal-test-input',
+      );
+
+      app = mountApp();
+      emitGameplayState(gameplay);
+      openInventory(app.host);
+
+      const beforeUI = app.host.querySelector(
+        '[data-testid="inventory-state"]',
+      )?.textContent;
+
+      const beforeSnapshot = loadRuntimeInventorySnapshot(
+        controlledStorage,
+      );
+
+      expect(beforeSnapshot?.inventory.resources).toEqual({
+        'crystal-test-input': 1,
+      });
+
+      failInventoryWrites = true;
+
+      const removeButton = app.host.querySelector(
+        '[data-testid="remove-resource"]',
+      ) as HTMLButtonElement | null;
+
+      expect(removeButton).not.toBeNull();
+
+      act(() => removeButton?.click());
+
+      const afterUI = app.host.querySelector(
+        '[data-testid="inventory-state"]',
+      )?.textContent;
+
+      const afterSnapshot = loadRuntimeInventorySnapshot(
+        controlledStorage,
+      );
+
+      expect(afterUI).toBe(beforeUI);
+      expect(afterSnapshot?.inventory.resources).toEqual({
+        'crystal-test-input': 1,
+      });
+      expect(afterSnapshot?.revision).toBe(0);
+      expect(loadGameplaySave(controlledStorage)).toEqual(gameplay);
+    } finally {
+      app?.unmount();
+
+      if (originalDescriptor) {
+        Object.defineProperty(window, 'localStorage', originalDescriptor);
+      } else {
+        Reflect.deleteProperty(window, 'localStorage');
+      }
+    }
   });
 });
