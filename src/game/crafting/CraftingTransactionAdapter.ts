@@ -5,10 +5,12 @@ import {
   type CraftingRecipe,
   type RecipeRegistry,
 } from "./CraftingSystem";
+
 import {
   InventoryTransactionService,
   type InventoryTransactionErrorCode,
 } from "../inventory/InventoryTransactionService";
+
 import type { ReactionDefinition } from "../chemistry/ReactionEngine";
 
 export type CraftingTransactionError =
@@ -84,19 +86,16 @@ export class CraftingTransactionAdapter {
       };
     }
 
-    // One-shot state is not part of the durable inventory contract.
     if (recipe.oneShot === true) {
       return {
         success: false,
         error: "UNSUPPORTED_ONE_SHOT",
-        message: "One-shot recipes are not supported by the current inventory contract.",
+        message:
+          "One-shot recipes are not supported by the current inventory contract.",
       };
     }
 
-    const materials = [
-      ...recipe.ingredients,
-      recipe.output,
-    ];
+    const materials = [...recipe.ingredients, recipe.output];
 
     if (!materials.every((item) => isCanonicalResourceId(item.resourceId))) {
       return {
@@ -106,16 +105,28 @@ export class CraftingTransactionAdapter {
       };
     }
 
+    const inputIds = recipe.ingredients.map((item) => item.resourceId);
+
+    if (new Set(inputIds).size !== inputIds.length) {
+      return {
+        success: false,
+        error: "INVALID_RECIPE",
+        message: "Duplicate input resource IDs are not allowed.",
+      };
+    }
+
     const reaction: ReactionDefinition = {
       id: recipe.id,
       inputs: recipe.ingredients.map((item) => ({
         resourceId: item.resourceId,
         quantity: item.quantity,
       })),
-      outputs: [{
-        resourceId: recipe.output.resourceId,
-        quantity: recipe.output.quantity,
-      }],
+      outputs: [
+        {
+          resourceId: recipe.output.resourceId,
+          quantity: recipe.output.quantity,
+        },
+      ],
     };
 
     const prepared = this.transactions.prepare(
@@ -142,7 +153,6 @@ export class CraftingTransactionAdapter {
       };
     }
 
-    // The transaction service is the sole source of truth.
     const snapshot = this.transactions.getSnapshot();
 
     return {
