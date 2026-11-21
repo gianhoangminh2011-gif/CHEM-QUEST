@@ -19,6 +19,7 @@ import {
   type RuntimeInventoryState,
 } from './game/inventory/RuntimeInventorySystem';
 import { InventoryTransactionService } from './game/inventory/InventoryTransactionService';
+import { CraftingTransactionAdapter } from './game/crafting/CraftingTransactionAdapter';
 import {
   isAnalysed,
   type AnalysisResult,
@@ -49,6 +50,8 @@ function App() {
   const processedCrystalIds = useRef(new Set<string>());
   const inventoryTransactions =
     useRef<InventoryTransactionService | null>(null);
+  const craftingTransactions =
+    useRef<CraftingTransactionAdapter | null>(null);
   const inventorySyncFailed = useRef(false);
 
   const handleGameplayStateChange = useCallback(
@@ -89,6 +92,8 @@ function App() {
     try {
       const service = new InventoryTransactionService(initialInventory);
       inventoryTransactions.current = service;
+      craftingTransactions.current =
+        new CraftingTransactionAdapter(service);
 
       const restoredInventory = service.getSnapshot().inventory;
 
@@ -202,7 +207,6 @@ function App() {
     hasReceivedGameplayState,
     hasHydratedRuntimeInventory,
   ]);
-
 
   const crystalCount = gameplayState.collectedResourceIds.length;
 
