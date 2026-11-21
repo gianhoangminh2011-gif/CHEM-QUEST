@@ -49,6 +49,7 @@ function App() {
   const processedCrystalIds = useRef(new Set<string>());
   const inventoryTransactions =
     useRef<InventoryTransactionService | null>(null);
+  const inventorySyncFailed = useRef(false);
 
   const handleGameplayStateChange = useCallback(
     (nextState: GameplayState) => {
@@ -64,12 +65,6 @@ function App() {
     },
     []
   );
-
-  useEffect(() => {
-    if (!hasReceivedGameplayState) return;
-
-    saveGameplayState(gameplayState);
-  }, [gameplayState, hasReceivedGameplayState]);
 
   useEffect(() => {
     if (!hasReceivedGameplayState || hasHydratedRuntimeInventory) {
@@ -128,7 +123,13 @@ function App() {
     if (!hasHydratedRuntimeInventory) return;
 
     const service = inventoryTransactions.current;
-    if (!service) return;
+
+    inventorySyncFailed.current = false;
+
+    if (!service) {
+      inventorySyncFailed.current = true;
+      return;
+    }
 
     let changed = false;
 
@@ -148,6 +149,7 @@ function App() {
       );
 
       if (!transition.ok) {
+        inventorySyncFailed.current = true;
         console.error(
           'CHEM QUEST: Invalid world collection event.',
           resourceId,
@@ -164,6 +166,7 @@ function App() {
       );
 
       if (!result.success) {
+        inventorySyncFailed.current = true;
         console.error(
           'CHEM QUEST: World collection transaction failed.',
           result.error,
@@ -183,6 +186,23 @@ function App() {
     hasHydratedRuntimeInventory,
     gameplayState.collectedResourceIds,
   ]);
+
+  useEffect(() => {
+    if (
+      !hasReceivedGameplayState ||
+      !hasHydratedRuntimeInventory ||
+      inventorySyncFailed.current
+    ) {
+      return;
+    }
+
+    saveGameplayState(gameplayState);
+  }, [
+    gameplayState,
+    hasReceivedGameplayState,
+    hasHydratedRuntimeInventory,
+  ]);
+
 
   const crystalCount = gameplayState.collectedResourceIds.length;
 
