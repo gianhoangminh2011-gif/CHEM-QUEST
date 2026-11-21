@@ -199,11 +199,10 @@ function App() {
 
       setRuntimeInventory(restoredInventory);
 
+      // Historical collection events must not be replayed after hydration.
+      // This prevents removed resources from being collected again on reload.
       for (const resourceId of gameplayState.collectedResourceIds) {
-        if (
-          resourceId.startsWith('crystal-') &&
-          (restoredInventory.resources[resourceId] ?? 0) > 0
-        ) {
+        if (resourceId.startsWith('crystal-')) {
           processedCrystalIds.current.add(resourceId);
         }
       }
