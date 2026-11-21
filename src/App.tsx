@@ -48,10 +48,13 @@ function App() {
     useState(false);
 
   const processedCrystalIds = useRef(new Set<string>());
+
   const inventoryTransactions =
     useRef<InventoryTransactionService | null>(null);
+
   const craftingTransactions =
     useRef<CraftingTransactionAdapter | null>(null);
+
   const inventorySyncFailed = useRef(false);
 
   const handleGameplayStateChange = useCallback(
@@ -67,6 +70,36 @@ function App() {
       setChemistryBridge(bridge);
     },
     []
+  );
+
+  const handleCraftingTransaction = useCallback(
+    (transactionId: string, recipeId: string) => {
+      const service = inventoryTransactions.current;
+      const adapter = craftingTransactions.current;
+
+      if (!service || !adapter) {
+        return {
+          success: false as const,
+          error: 'PERSISTENCE_UNAVAILABLE' as const,
+          message: 'Crafting inventory service is not initialized.',
+        };
+      }
+
+      const snapshotBefore = service.getSnapshot();
+
+      const result = adapter.execute(
+        transactionId,
+        recipeId,
+        snapshotBefore.revision,
+      );
+
+      if (result.success) {
+        setRuntimeInventory(service.getSnapshot().inventory);
+      }
+
+      return result;
+    },
+    [],
   );
 
   useEffect(() => {
@@ -91,6 +124,7 @@ function App() {
 
     try {
       const service = new InventoryTransactionService(initialInventory);
+
       inventoryTransactions.current = service;
       craftingTransactions.current =
         new CraftingTransactionAdapter(service);
@@ -99,9 +133,6 @@ function App() {
 
       setRuntimeInventory(restoredInventory);
 
-      // Only mark a collection as processed if it actually exists
-      // in the durable inventory restored by the transaction service.
-      // Missing collections will be replayed by the next effect.
       for (const resourceId of gameplayState.collectedResourceIds) {
         if (
           resourceId.startsWith('crystal-') &&
@@ -449,6 +480,7 @@ function App() {
               inventory={runtimeInventory}
               elements={elementRecords}
               researchSamples={researchSamples}
+              onCraftingTransaction={handleCraftingTransaction}
             />
           )}
 
