@@ -1,5 +1,5 @@
 
- // @vitest-environment jsdom
+// @vitest-environment jsdom
 
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -82,6 +82,8 @@ describe('PhaserGame React integration', () => {
   it('creates Phaser, receives gameplay updates, and cleans up on unmount', async () => {
     const onGameplayStateChange = vi.fn();
     const onChemistryBridgeChange = vi.fn();
+    const onCollectResource = vi.fn(() => true);
+
     const host = document.createElement('div');
     document.body.appendChild(host);
 
@@ -92,6 +94,7 @@ describe('PhaserGame React integration', () => {
         createElement(PhaserGame, {
           onGameplayStateChange,
           onChemistryBridgeChange,
+          onCollectResource,
         })
       );
     });

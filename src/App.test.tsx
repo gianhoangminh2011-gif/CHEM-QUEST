@@ -18,17 +18,21 @@ import {
 import {
   RUNTIME_INVENTORY_SAVE_KEY,
   loadRuntimeInventorySnapshot,
-  saveRuntimeInventorySnapshot,
 } from './game/inventory/RuntimeInventorySaveService';
 import { InventoryTransactionService } from './game/inventory/InventoryTransactionService';
 
 const appHarness = vi.hoisted(() => ({
   onGameplayStateChange:
     null as ((state: GameplayState) => void) | null,
+
+  onCollectResource:
+    null as ((resourceId: string) => boolean) | null,
+
   onCraftingTransaction:
     null as
       | ((transactionId: string, recipeId: string) => { success: boolean })
       | null,
+
   onRemoveResource:
     null as
       | ((resourceId: string) => {
@@ -41,8 +45,11 @@ const appHarness = vi.hoisted(() => ({
 vi.mock('./game/PhaserGame', () => ({
   default: (props: {
     onGameplayStateChange: (state: GameplayState) => void;
+    onCollectResource: (resourceId: string) => boolean;
   }) => {
     appHarness.onGameplayStateChange = props.onGameplayStateChange;
+    appHarness.onCollectResource = props.onCollectResource;
+
     return null;
   },
 }));
@@ -51,8 +58,6 @@ vi.mock('./game/LabPanel', () => ({
   default: () => null,
 }));
 
-// Keep the real App callback and transaction service, while replacing only
-// the adapter with a deterministic test recipe. Production recipes stay empty.
 vi.mock('./game/crafting/CraftingTransactionAdapter', () => ({
   CraftingTransactionAdapter: class {
     constructor(
@@ -122,8 +127,6 @@ vi.mock('./game/crafting/CraftingTransactionAdapter', () => ({
   },
 }));
 
-// This test-only panel exposes the callback passed by App without enabling
-// or changing the real player-facing crafting UI.
 vi.mock('./game/inventory/RuntimeInventoryPanel', () => ({
   default: (props: {
     inventory: {
@@ -218,11 +221,46 @@ function emitGameplayState(state: GameplayState) {
   });
 }
 
-function collect(state: GameplayState, id: string): GameplayState {
-  return updateGameplayState(state, {
-    type: 'COLLECT_RESOURCE',
-    id,
+/**
+ * Simulates the real BootScene collection order:
+ * 1. Commit inventory transaction.
+ * 2. Only if successful, update gameplay state.
+ */
+function collectThroughApp(
+  state: GameplayState,
+  resourceId: string,
+): {
+  accepted: boolean;
+  state: GameplayState;
+} {
+  if (!appHarness.onCollectResource) {
+    throw new Error('App collection callback is not initialized.');
+  }
+
+  if (!appHarness.onGameplayStateChange) {
+    throw new Error('App gameplay callback is not initialized.');
+  }
+
+  let accepted = false;
+  let nextState = state;
+
+  act(() => {
+    accepted = appHarness.onCollectResource!(resourceId);
+
+    if (accepted) {
+      nextState = updateGameplayState(state, {
+        type: 'COLLECT_RESOURCE',
+        id: resourceId,
+      });
+
+      appHarness.onGameplayStateChange!(nextState);
+    }
   });
+
+  return {
+    accepted,
+    state: nextState,
+  };
 }
 
 function openInventory(host: HTMLElement) {
@@ -237,10 +275,37 @@ function openInventory(host: HTMLElement) {
   act(() => inventoryNav.click());
 }
 
-describe('App chemistry inventory integration', () => {
+function createControlledStorage(
+  backingStorage: Storage,
+  shouldFail: () => boolean,
+): Storage {
+  return {
+    get length() {
+      return backingStorage.length;
+    },
+    clear: () => backingStorage.clear(),
+    getItem: (key) => backingStorage.getItem(key),
+    key: (index) => backingStorage.key(index),
+    removeItem: (key) => backingStorage.removeItem(key),
+    setItem: (key, value) => {
+      if (
+        shouldFail() &&
+        key === RUNTIME_INVENTORY_SAVE_KEY
+      ) {
+        throw new Error('Simulated inventory storage failure.');
+      }
+
+      backingStorage.setItem(key, value);
+    },
+  };
+}
+
+describe('App quest and inventory integration', () => {
   beforeEach(() => {
     window.localStorage.clear();
+
     appHarness.onGameplayStateChange = null;
+    appHarness.onCollectResource = null;
     appHarness.onCraftingTransaction = null;
     appHarness.onRemoveResource = null;
 
@@ -253,8 +318,16 @@ describe('App chemistry inventory integration', () => {
 
   it('migrates legacy gameplay collections into the initial inventory baseline', () => {
     let gameplay = createGameplayState();
-    gameplay = collect(gameplay, 'crystal-water-legacy-01');
-    gameplay = collect(gameplay, 'crystal-iron-legacy-01');
+
+    gameplay = updateGameplayState(gameplay, {
+      type: 'COLLECT_RESOURCE',
+      id: 'crystal-water-legacy-01',
+    });
+
+    gameplay = updateGameplayState(gameplay, {
+      type: 'COLLECT_RESOURCE',
+      id: 'crystal-iron-legacy-01',
+    });
 
     const app = mountApp();
 
@@ -265,12 +338,12 @@ describe('App chemistry inventory integration', () => {
     );
 
     expect(snapshot).not.toBeNull();
+
     expect(snapshot?.inventory.resources).toEqual({
       'crystal-water-legacy-01': 1,
       'crystal-iron-legacy-01': 1,
     });
 
-    // Legacy collections are migration baseline, not new transactions.
     expect(snapshot?.revision).toBe(0);
     expect(snapshot?.transactions).toHaveLength(0);
 
@@ -279,126 +352,103 @@ describe('App chemistry inventory integration', () => {
     app.unmount();
   });
 
-  it('journals only collections missing from the durable inventory', () => {
-    saveRuntimeInventorySnapshot(
-      {
-        inventory: {
-          resources: {
-            'crystal-water-old': 1,
-          },
-        },
-        revision: 4,
-        transactions: [],
-      },
-      window.localStorage,
-    );
-
-    let gameplay = createGameplayState();
-    gameplay = collect(gameplay, 'crystal-water-old');
-    gameplay = collect(gameplay, 'crystal-iron-new');
-
+  it('commits inventory before updating gameplay progress', () => {
+    const initialGameplay = createGameplayState();
     const app = mountApp();
 
-    emitGameplayState(gameplay);
+    emitGameplayState(initialGameplay);
+
+    const result = collectThroughApp(
+      initialGameplay,
+      'crystal-water-new',
+    );
+
+    expect(result.accepted).toBe(true);
+
+    expect(result.state.collectedResourceIds).toContain(
+      'crystal-water-new',
+    );
 
     const snapshot = loadRuntimeInventorySnapshot(
       window.localStorage,
     );
 
     expect(snapshot?.inventory.resources).toEqual({
-      'crystal-water-old': 1,
-      'crystal-iron-new': 1,
+      'crystal-water-new': 1,
     });
 
-    expect(snapshot?.revision).toBe(5);
+    expect(snapshot?.revision).toBe(1);
     expect(snapshot?.transactions).toHaveLength(1);
+
     expect(snapshot?.transactions[0]).toMatchObject({
-      transactionId: 'world-collect-crystal-iron-new',
+      transactionId: 'world-collect-crystal-water-new',
       reactionId: 'system-world-collection',
       status: 'COMMITTED',
-      expectedRevision: 4,
+      expectedRevision: 0,
     });
 
-    expect(loadGameplaySave(window.localStorage)).toEqual(gameplay);
+    expect(loadGameplaySave(window.localStorage)).toEqual(
+      result.state,
+    );
 
     app.unmount();
   });
 
-  it('does not duplicate a committed collection after App reload', () => {
-    saveRuntimeInventorySnapshot(
-      {
-        inventory: {
-          resources: {
-            'crystal-water-reload': 1,
-          },
-        },
-        revision: 1,
-        transactions: [],
-      },
-      window.localStorage,
+  it('does not duplicate a collection after App reload', () => {
+    const initialGameplay = createGameplayState();
+    const firstApp = mountApp();
+
+    emitGameplayState(initialGameplay);
+
+    const firstResult = collectThroughApp(
+      initialGameplay,
+      'crystal-water-reload',
     );
 
-    let gameplay = createGameplayState();
-    gameplay = collect(gameplay, 'crystal-water-reload');
-    gameplay = collect(gameplay, 'crystal-iron-reload');
-
-    const firstApp = mountApp();
-    emitGameplayState(gameplay);
-    firstApp.unmount();
+    expect(firstResult.accepted).toBe(true);
 
     const firstSnapshot = loadRuntimeInventorySnapshot(
       window.localStorage,
     );
 
-    expect(firstSnapshot?.revision).toBe(2);
-    expect(firstSnapshot?.inventory.resources['crystal-iron-reload'])
-      .toBe(1);
+    expect(firstSnapshot?.revision).toBe(1);
+
+    firstApp.unmount();
 
     const secondApp = mountApp();
-    emitGameplayState(gameplay);
+
+    // The saved gameplay state is restored before the second App hydrates.
+    emitGameplayState(firstResult.state);
 
     const secondSnapshot = loadRuntimeInventorySnapshot(
       window.localStorage,
     );
 
-    expect(secondSnapshot?.revision).toBe(2);
+    expect(secondSnapshot?.revision).toBe(1);
+
     expect(secondSnapshot?.inventory.resources).toEqual({
       'crystal-water-reload': 1,
-      'crystal-iron-reload': 1,
     });
+
     expect(secondSnapshot?.transactions).toHaveLength(1);
 
     secondApp.unmount();
   });
 
-  it('does not save gameplay progress when inventory persistence fails', () => {
+  it('does not update gameplay progress when inventory persistence fails', () => {
     const originalDescriptor = Object.getOwnPropertyDescriptor(
       window,
       'localStorage',
     );
+
     const backingStorage = window.localStorage;
 
     let failInventoryWrites = false;
 
-    const controlledStorage: Storage = {
-      get length() {
-        return backingStorage.length;
-      },
-      clear: () => backingStorage.clear(),
-      getItem: (key) => backingStorage.getItem(key),
-      key: (index) => backingStorage.key(index),
-      removeItem: (key) => backingStorage.removeItem(key),
-      setItem: (key, value) => {
-        if (
-          failInventoryWrites &&
-          key === RUNTIME_INVENTORY_SAVE_KEY
-        ) {
-          throw new Error('Simulated inventory storage failure.');
-        }
-
-        backingStorage.setItem(key, value);
-      },
-    };
+    const controlledStorage = createControlledStorage(
+      backingStorage,
+      () => failInventoryWrites,
+    );
 
     Object.defineProperty(window, 'localStorage', {
       configurable: true,
@@ -408,54 +458,77 @@ describe('App chemistry inventory integration', () => {
     let app: ReturnType<typeof mountApp> | null = null;
 
     try {
-      app = mountApp();
-
       const initialGameplay = createGameplayState();
+
+      app = mountApp();
       emitGameplayState(initialGameplay);
 
-      expect(loadGameplaySave(controlledStorage)).toEqual(initialGameplay);
+      expect(loadGameplaySave(controlledStorage)).toEqual(
+        initialGameplay,
+      );
 
       failInventoryWrites = true;
 
-      const nextGameplay = collect(
+      const result = collectThroughApp(
         initialGameplay,
         'crystal-storage-failure',
       );
 
-      emitGameplayState(nextGameplay);
+      // BootScene must not update gameplay after a failed collection.
+      expect(result.accepted).toBe(false);
+      expect(result.state).toEqual(initialGameplay);
 
-      expect(loadRuntimeInventorySnapshot(controlledStorage)).toMatchObject({
+      expect(
+        result.state.collectedResourceIds,
+      ).not.toContain('crystal-storage-failure');
+
+      expect(
+        loadRuntimeInventorySnapshot(controlledStorage),
+      ).toMatchObject({
         inventory: { resources: {} },
         revision: 0,
         transactions: [],
       });
 
-      expect(loadGameplaySave(controlledStorage)).toEqual(initialGameplay);
-      expect(controlledStorage.getItem(GAMEPLAY_SAVE_KEY)).not.toBeNull();
+      expect(loadGameplaySave(controlledStorage)).toEqual(
+        initialGameplay,
+      );
+
+      expect(
+        controlledStorage.getItem(GAMEPLAY_SAVE_KEY),
+      ).not.toBeNull();
     } finally {
       app?.unmount();
 
       if (originalDescriptor) {
-        Object.defineProperty(window, 'localStorage', originalDescriptor);
+        Object.defineProperty(
+          window,
+          'localStorage',
+          originalDescriptor,
+        );
       } else {
         Reflect.deleteProperty(window, 'localStorage');
       }
     }
   });
 
-  it('refreshes React inventory from the transaction service after successful crafting', () => {
-    const gameplay = collect(
-      createGameplayState(),
-      'crystal-test-input',
-    );
+  it('refreshes React inventory after successful crafting', () => {
+    let gameplay = createGameplayState();
+
+    gameplay = updateGameplayState(gameplay, {
+      type: 'COLLECT_RESOURCE',
+      id: 'crystal-test-input',
+    });
 
     const app = mountApp();
+
     emitGameplayState(gameplay);
     openInventory(app.host);
 
     const inventoryState = app.host.querySelector(
       '[data-testid="inventory-state"]',
     );
+
     const craftButton = app.host.querySelector(
       '[data-testid="craft-success"]',
     ) as HTMLButtonElement | null;
@@ -463,6 +536,7 @@ describe('App chemistry inventory integration', () => {
     expect(inventoryState?.textContent).toContain(
       '"crystal-test-input":1',
     );
+
     expect(craftButton).not.toBeNull();
 
     act(() => craftButton?.click());
@@ -474,6 +548,7 @@ describe('App chemistry inventory integration', () => {
     expect(updatedInventoryState?.textContent).toContain(
       '"crystal-test-output":1',
     );
+
     expect(updatedInventoryState?.textContent).not.toContain(
       'crystal-test-input',
     );
@@ -485,18 +560,22 @@ describe('App chemistry inventory integration', () => {
     expect(snapshot?.inventory.resources).toEqual({
       'crystal-test-output': 1,
     });
+
     expect(snapshot?.revision).toBe(1);
 
     app.unmount();
   });
 
   it('keeps React inventory unchanged when crafting fails', () => {
-    const gameplay = collect(
-      createGameplayState(),
-      'crystal-test-input',
-    );
+    let gameplay = createGameplayState();
+
+    gameplay = updateGameplayState(gameplay, {
+      type: 'COLLECT_RESOURCE',
+      id: 'crystal-test-input',
+    });
 
     const app = mountApp();
+
     emitGameplayState(gameplay);
     openInventory(app.host);
 
@@ -526,18 +605,22 @@ describe('App chemistry inventory integration', () => {
     expect(snapshot?.inventory.resources).toEqual({
       'crystal-test-input': 1,
     });
+
     expect(snapshot?.revision).toBe(0);
 
     app.unmount();
   });
 
   it('removes one resource durably and does not restore it after reload', () => {
-    const gameplay = collect(
-      createGameplayState(),
-      'crystal-test-input',
-    );
+    let gameplay = createGameplayState();
+
+    gameplay = updateGameplayState(gameplay, {
+      type: 'COLLECT_RESOURCE',
+      id: 'crystal-test-input',
+    });
 
     const firstApp = mountApp();
+
     emitGameplayState(gameplay);
     openInventory(firstApp.host);
 
@@ -545,7 +628,9 @@ describe('App chemistry inventory integration', () => {
       window.localStorage,
     );
 
-    expect(before?.inventory.resources['crystal-test-input']).toBe(1);
+    expect(
+      before?.inventory.resources['crystal-test-input'],
+    ).toBe(1);
 
     const removeButton = firstApp.host.querySelector(
       '[data-testid="remove-resource"]',
@@ -562,19 +647,20 @@ describe('App chemistry inventory integration', () => {
     expect(after?.inventory.resources).toEqual({});
     expect(after?.revision).toBe(1);
     expect(after?.transactions).toHaveLength(1);
+
     expect(after?.transactions[0]).toMatchObject({
       reactionId: 'system-inventory-remove',
       status: 'COMMITTED',
       expectedRevision: 0,
     });
 
-    // Removing inventory must not erase collection history or quest progress.
+    // Inventory removal must not erase quest collection history.
     expect(loadGameplaySave(window.localStorage)).toEqual(gameplay);
 
     firstApp.unmount();
 
-    // Reload the same gameplay history and durable inventory.
     const secondApp = mountApp();
+
     emitGameplayState(gameplay);
     openInventory(secondApp.host);
 
@@ -584,9 +670,11 @@ describe('App chemistry inventory integration', () => {
 
     expect(reloaded?.inventory.resources).toEqual({});
     expect(reloaded?.revision).toBe(1);
+
     expect(
-      secondApp.host.querySelector('[data-testid="inventory-state"]')
-        ?.textContent,
+      secondApp.host.querySelector(
+        '[data-testid="inventory-state"]',
+      )?.textContent,
     ).toContain('{}');
 
     secondApp.unmount();
@@ -597,29 +685,15 @@ describe('App chemistry inventory integration', () => {
       window,
       'localStorage',
     );
+
     const backingStorage = window.localStorage;
 
     let failInventoryWrites = false;
 
-    const controlledStorage: Storage = {
-      get length() {
-        return backingStorage.length;
-      },
-      clear: () => backingStorage.clear(),
-      getItem: (key) => backingStorage.getItem(key),
-      key: (index) => backingStorage.key(index),
-      removeItem: (key) => backingStorage.removeItem(key),
-      setItem: (key, value) => {
-        if (
-          failInventoryWrites &&
-          key === RUNTIME_INVENTORY_SAVE_KEY
-        ) {
-          throw new Error('Simulated inventory storage failure.');
-        }
-
-        backingStorage.setItem(key, value);
-      },
-    };
+    const controlledStorage = createControlledStorage(
+      backingStorage,
+      () => failInventoryWrites,
+    );
 
     Object.defineProperty(window, 'localStorage', {
       configurable: true,
@@ -629,12 +703,15 @@ describe('App chemistry inventory integration', () => {
     let app: ReturnType<typeof mountApp> | null = null;
 
     try {
-      const gameplay = collect(
-        createGameplayState(),
-        'crystal-test-input',
-      );
+      let gameplay = createGameplayState();
+
+      gameplay = updateGameplayState(gameplay, {
+        type: 'COLLECT_RESOURCE',
+        id: 'crystal-test-input',
+      });
 
       app = mountApp();
+
       emitGameplayState(gameplay);
       openInventory(app.host);
 
@@ -669,16 +746,25 @@ describe('App chemistry inventory integration', () => {
       );
 
       expect(afterUI).toBe(beforeUI);
+
       expect(afterSnapshot?.inventory.resources).toEqual({
         'crystal-test-input': 1,
       });
+
       expect(afterSnapshot?.revision).toBe(0);
-      expect(loadGameplaySave(controlledStorage)).toEqual(gameplay);
+
+      expect(loadGameplaySave(controlledStorage)).toEqual(
+        gameplay,
+      );
     } finally {
       app?.unmount();
 
       if (originalDescriptor) {
-        Object.defineProperty(window, 'localStorage', originalDescriptor);
+        Object.defineProperty(
+          window,
+          'localStorage',
+          originalDescriptor,
+        );
       } else {
         Reflect.deleteProperty(window, 'localStorage');
       }

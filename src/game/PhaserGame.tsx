@@ -1,4 +1,3 @@
-
 import { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
 import BootScene from './scenes/BootScene';
@@ -18,11 +17,13 @@ interface PhaserGameProps {
   onChemistryBridgeChange: (
     bridge: ChemistryBridge | null
   ) => void;
+  onCollectResource: (resourceId: string) => boolean;
 }
 
 function PhaserGame({
   onGameplayStateChange,
   onChemistryBridgeChange,
+  onCollectResource,
 }: PhaserGameProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -44,7 +45,7 @@ function PhaserGame({
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH,
       },
-      scene: [BootScene],
+      scene: [new BootScene(onCollectResource)],
       physics: {
         default: 'arcade',
         arcade: {
@@ -101,6 +102,7 @@ function PhaserGame({
   }, [
     onGameplayStateChange,
     onChemistryBridgeChange,
+    onCollectResource,
   ]);
 
   return <div ref={containerRef} className="phaser-game" />;

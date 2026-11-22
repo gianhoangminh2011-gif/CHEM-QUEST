@@ -4,6 +4,7 @@ import PhaserGame from './game/PhaserGame';
 import LabPanel from './game/LabPanel';
 import {
   createGameplayState,
+  updateGameplayState,
   type GameplayState,
 } from './game/state/GameplayState';
 import { saveGameplayState } from './game/state/GameplaySaveService';
@@ -20,9 +21,7 @@ import {
   type RuntimeInventoryState,
 } from './game/inventory/RuntimeInventorySystem';
 import { InventoryTransactionService } from './game/inventory/InventoryTransactionService';
-import {
-  loadRuntimeInventorySnapshot,
-} from './game/inventory/RuntimeInventorySaveService';
+import { loadRuntimeInventorySnapshot } from './game/inventory/RuntimeInventorySaveService';
 import { CraftingTransactionAdapter } from './game/crafting/CraftingTransactionAdapter';
 import {
   isAnalysed,
@@ -61,21 +60,85 @@ function App() {
 
   const inventoryRemovalSequence = useRef(0);
 
-  const inventorySyncFailed = useRef(false);
-
   const handleGameplayStateChange = useCallback(
     (nextState: GameplayState) => {
       setGameplayState(nextState);
       setHasReceivedGameplayState(true);
     },
-    []
+    [],
   );
 
   const handleChemistryBridgeChange = useCallback(
     (bridge: ChemistryBridge | null) => {
       setChemistryBridge(bridge);
     },
-    []
+    [],
+  );
+
+  // Commit the durable inventory transaction BEFORE updating GameplayState.
+  const handleCollectResource = useCallback(
+    (resourceId: string): boolean => {
+      const service = inventoryTransactions.current;
+
+      if (!service || !hasHydratedRuntimeInventory) {
+        return false;
+      }
+
+      if (processedCrystalIds.current.has(resourceId)) {
+        return true;
+      }
+
+      const transactionId = `world-collect-${resourceId}`;
+      const existing = service.getTransaction(transactionId);
+
+      if (existing) {
+        if (existing.status !== 'COMMITTED') {
+          return false;
+        }
+
+        processedCrystalIds.current.add(resourceId);
+        setRuntimeInventory(service.getSnapshot().inventory);
+        return true;
+      }
+
+      const snapshot = service.getSnapshot();
+
+      const transition = collectRuntimeResource(
+        snapshot.inventory,
+        resourceId,
+      );
+
+      if (!transition.ok) {
+        console.error(
+          'CHEM QUEST: Invalid world collection event.',
+          resourceId,
+          transition.error,
+        );
+        return false;
+      }
+
+      const result = service.applyInventoryChange(
+        transactionId,
+        'system-world-collection',
+        transition.state,
+        snapshot.revision,
+      );
+
+      if (!result.success || result.record.status !== 'COMMITTED') {
+        console.error(
+          'CHEM QUEST: World collection transaction failed.',
+          result.success ? result.record.status : result.error,
+          result.success ? '' : result.message,
+        );
+        return false;
+      }
+
+      processedCrystalIds.current.add(resourceId);
+      setRuntimeInventory(service.getSnapshot().inventory);
+
+      return true;
+    },
+    [hasHydratedRuntimeInventory],
   );
 
   const handleRemoveResource = useCallback(
@@ -171,6 +234,7 @@ function App() {
     [],
   );
 
+  // Hydrate durable inventory and reconcile it with gameplay history.
   useEffect(() => {
     if (!hasReceivedGameplayState || hasHydratedRuntimeInventory) {
       return;
@@ -198,17 +262,11 @@ function App() {
       craftingTransactions.current =
         new CraftingTransactionAdapter(service);
 
-      const restoredInventory = service.getSnapshot().inventory;
-
-      setRuntimeInventory(restoredInventory);
-
-      // Reconcile historical collection events against the durable journal.
-      // A committed collection or removal must not be replayed after reload.
       const durableSnapshot = loadRuntimeInventorySnapshot();
 
       const removedResourceIds = new Set<string>();
 
-      for (const transaction of durableSnapshot?.transactions ?? []) {
+      for (const transaction of service.getTransactions()) {
         if (
           transaction.status !== 'COMMITTED' ||
           transaction.reactionId !== 'system-inventory-remove'
@@ -228,28 +286,107 @@ function App() {
         }
       }
 
-      for (const resourceId of gameplayState.collectedResourceIds) {
+      let reconciledGameplayState = gameplayState;
+      let currentSnapshot = service.getSnapshot();
+
+      // A committed collection in the journal must also exist in gameplay
+      // history, including transactions recovered from PREPARED on startup.
+      for (const transaction of service.getTransactions()) {
+        if (
+          transaction.status !== 'COMMITTED' ||
+          transaction.reactionId !== 'system-world-collection' ||
+          !transaction.transactionId.startsWith('world-collect-')
+        ) {
+          continue;
+        }
+
+        const resourceId = transaction.transactionId.slice(
+          'world-collect-'.length,
+        );
+
         if (!resourceId.startsWith('crystal-')) continue;
 
-        const collectionTransaction =
-          service.getTransaction(`world-collect-${resourceId}`);
+        if (
+          !reconciledGameplayState.collectedResourceIds.includes(resourceId)
+        ) {
+          reconciledGameplayState = updateGameplayState(
+            reconciledGameplayState,
+            {
+              type: 'COLLECT_RESOURCE',
+              id: resourceId,
+            },
+          );
+        }
 
-        const hasCommittedCollection =
-          collectionTransaction?.status === 'COMMITTED';
+        processedCrystalIds.current.add(resourceId);
+      }
+
+      // Backfill legacy gameplay collections only when there is no durable
+      // collection, no existing inventory quantity, and no removal record.
+      for (const resourceId of reconciledGameplayState.collectedResourceIds) {
+        if (!resourceId.startsWith('crystal-')) continue;
+
+        const collectionTransaction = service.getTransaction(
+          `world-collect-${resourceId}`,
+        );
 
         const existsInDurableInventory =
-          (restoredInventory.resources[resourceId] ?? 0) > 0;
+          (currentSnapshot.inventory.resources[resourceId] ?? 0) > 0;
 
         if (
+          collectionTransaction?.status === 'COMMITTED' ||
+          collectionTransaction?.status === 'ROLLED_BACK' ||
           existsInDurableInventory ||
-          hasCommittedCollection ||
           removedResourceIds.has(resourceId)
         ) {
           processedCrystalIds.current.add(resourceId);
+          continue;
         }
+
+        if (collectionTransaction?.status === 'PREPARED') {
+          continue;
+        }
+
+        const transition = collectRuntimeResource(
+          currentSnapshot.inventory,
+          resourceId,
+        );
+
+        if (!transition.ok) {
+          throw new Error(
+            `Unable to reconcile legacy resource: ${resourceId}`,
+          );
+        }
+
+        const result = service.applyInventoryChange(
+          `world-collect-${resourceId}`,
+          'system-world-collection',
+          transition.state,
+          currentSnapshot.revision,
+        );
+
+        if (!result.success || result.record.status !== 'COMMITTED') {
+          throw new Error(
+            result.success
+              ? `Collection reconciliation was not committed: ${resourceId}`
+              : result.message,
+          );
+        }
+
+        processedCrystalIds.current.add(resourceId);
+        currentSnapshot = service.getSnapshot();
       }
 
+      setGameplayState(reconciledGameplayState);
+      setRuntimeInventory(service.getSnapshot().inventory);
       setHasHydratedRuntimeInventory(true);
+
+      // Keep the loaded snapshot reference explicit for diagnostics.
+      if (durableSnapshot === null) {
+        console.info(
+          'CHEM QUEST: Initialized inventory from gameplay history.',
+        );
+      }
     } catch (error) {
       console.error(
         'CHEM QUEST: Runtime inventory initialization failed.',
@@ -259,87 +396,21 @@ function App() {
   }, [
     hasReceivedGameplayState,
     hasHydratedRuntimeInventory,
-    gameplayState.collectedResourceIds,
+    gameplayState,
   ]);
 
+  // Gameplay persistence must not be blocked by an earlier inventory error.
+  // Failed collection events do not update GameplayState in the first place.
   useEffect(() => {
-    if (!hasHydratedRuntimeInventory) return;
-
-    const service = inventoryTransactions.current;
-
-    inventorySyncFailed.current = false;
-
-    if (!service) {
-      inventorySyncFailed.current = true;
+    if (!hasReceivedGameplayState || !hasHydratedRuntimeInventory) {
       return;
     }
 
-    let changed = false;
+    const saved = saveGameplayState(gameplayState);
 
-    for (const resourceId of gameplayState.collectedResourceIds) {
-      if (
-        !resourceId.startsWith('crystal-') ||
-        processedCrystalIds.current.has(resourceId)
-      ) {
-        continue;
-      }
-
-      const snapshot = service.getSnapshot();
-
-      const transition = collectRuntimeResource(
-        snapshot.inventory,
-        resourceId,
-      );
-
-      if (!transition.ok) {
-        inventorySyncFailed.current = true;
-        console.error(
-          'CHEM QUEST: Invalid world collection event.',
-          resourceId,
-          transition.error,
-        );
-        continue;
-      }
-
-      const result = service.applyInventoryChange(
-        `world-collect-${resourceId}`,
-        'system-world-collection',
-        transition.state,
-        snapshot.revision,
-      );
-
-      if (!result.success) {
-        inventorySyncFailed.current = true;
-        console.error(
-          'CHEM QUEST: World collection transaction failed.',
-          result.error,
-          result.message,
-        );
-        continue;
-      }
-
-      processedCrystalIds.current.add(resourceId);
-      changed = true;
+    if (!saved) {
+      console.error('CHEM QUEST: Gameplay save failed.');
     }
-
-    if (changed) {
-      setRuntimeInventory(service.getSnapshot().inventory);
-    }
-  }, [
-    hasHydratedRuntimeInventory,
-    gameplayState.collectedResourceIds,
-  ]);
-
-  useEffect(() => {
-    if (
-      !hasReceivedGameplayState ||
-      !hasHydratedRuntimeInventory ||
-      inventorySyncFailed.current
-    ) {
-      return;
-    }
-
-    saveGameplayState(gameplayState);
   }, [
     gameplayState,
     hasReceivedGameplayState,
@@ -349,11 +420,11 @@ function App() {
   const crystalCount = gameplayState.collectedResourceIds.length;
 
   const researchSamples: ResearchSample[] = Object.values(
-    gameplayState.researchSamplesById
+    gameplayState.researchSamplesById,
   );
 
   const analysisResults: AnalysisResult[] = Object.values(
-    gameplayState.analysisResultsBySampleId
+    gameplayState.analysisResultsBySampleId,
   );
 
   const analysedSampleIds = researchSamples
@@ -362,29 +433,29 @@ function App() {
 
   const questProgress = getQuestProgress(
     FIRST_DISCOVERY_QUEST,
-    gameplayState
+    gameplayState,
   );
 
   const totalQuestObjectives = FIRST_DISCOVERY_QUEST.objectives.reduce(
     (sum, objective) => sum + objective.targetCount,
-    0
+    0,
   );
 
   const totalQuestProgress = questProgress.objectives.reduce(
     (sum, objective) => sum + objective.currentCount,
-    0
+    0,
   );
 
   const progressPercentage =
     totalQuestObjectives > 0
       ? Math.min(
           (totalQuestProgress / totalQuestObjectives) * 100,
-          100
+          100,
         )
       : 0;
 
   const elementRecords = getElementRecordsForResources(
-    gameplayState.collectedResourceIds
+    gameplayState.collectedResourceIds,
   );
 
   const unmappedResourceCount =
@@ -492,6 +563,7 @@ function App() {
             <PhaserGame
               onGameplayStateChange={handleGameplayStateChange}
               onChemistryBridgeChange={handleChemistryBridgeChange}
+              onCollectResource={handleCollectResource}
             />
           </section>
 
