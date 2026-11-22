@@ -1,3 +1,4 @@
+
 // @vitest-environment jsdom
 
 import { act, createElement } from 'react';
@@ -10,6 +11,16 @@ import {
   createRuntimeInventory,
   removeRuntimeResource,
 } from './RuntimeInventorySystem';
+import type {
+  CraftingTransactionResult,
+} from '../crafting/CraftingTransactionAdapter';
+
+const failedCraftingTransaction =
+  (): CraftingTransactionResult => ({
+    success: false,
+    error: 'UNKNOWN_RECIPE',
+    message: 'No recipe.',
+  });
 
 describe('RuntimeInventoryPanel — Remove 1', () => {
   let cleanup: (() => void) | undefined;
@@ -54,11 +65,7 @@ describe('RuntimeInventoryPanel — Remove 1', () => {
             inventory,
             elements: [],
             researchSamples: [],
-            onCraftingTransaction: () => ({
-              success: false,
-              error: 'UNKNOWN_RECIPE',
-              message: 'No recipe.',
-            }),
+            onCraftingTransaction: failedCraftingTransaction,
             onRemoveResource,
           }),
         );
@@ -150,11 +157,7 @@ describe('RuntimeInventoryPanel — Remove 1', () => {
           inventory: collected.state,
           elements: [],
           researchSamples: [],
-          onCraftingTransaction: () => ({
-            success: false,
-            error: 'UNKNOWN_RECIPE',
-            message: 'No recipe.',
-          }),
+          onCraftingTransaction: failedCraftingTransaction,
           onRemoveResource,
         }),
       );
