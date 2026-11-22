@@ -1,7 +1,5 @@
-import type {
-  ChemicalElement,
-  ElementCategory,
-} from './ChemicalElement';
+
+import type { ElementCategory } from './ChemicalElement';
 
 const VALID_CATEGORIES = new Set<ElementCategory>([
   'alkali-metal',
@@ -46,6 +44,20 @@ function addIssue(
   message: string,
 ): void {
   issues.push({ code, path, message });
+}
+
+function getExpectedFBlockCategory(
+  atomicNumber: number,
+): 'lanthanoid' | 'actinoid' | null {
+  if (atomicNumber >= 57 && atomicNumber <= 71) {
+    return 'lanthanoid';
+  }
+
+  if (atomicNumber >= 89 && atomicNumber <= 103) {
+    return 'actinoid';
+  }
+
+  return null;
 }
 
 export function validatePeriodicTableData(
@@ -99,12 +111,13 @@ export function validatePeriodicTableData(
     const period = value.period;
     const category = value.category;
 
-    if (
-      typeof atomicNumber !== 'number' ||
-      !Number.isInteger(atomicNumber) ||
-      atomicNumber < 1 ||
-      atomicNumber > 118
-    ) {
+    const hasValidAtomicNumber =
+      typeof atomicNumber === 'number' &&
+      Number.isInteger(atomicNumber) &&
+      atomicNumber >= 1 &&
+      atomicNumber <= 118;
+
+    if (!hasValidAtomicNumber) {
       addIssue(
         issues,
         'INVALID_ATOMIC_NUMBER',
@@ -216,50 +229,67 @@ export function validatePeriodicTableData(
       );
     }
 
-    if (
-      typeof category !== 'string' ||
-      !VALID_CATEGORIES.has(category as ElementCategory)
-    ) {
+    const hasValidCategory =
+      typeof category === 'string' &&
+      VALID_CATEGORIES.has(category as ElementCategory);
+
+    if (!hasValidCategory) {
       addIssue(
         issues,
         'INVALID_CATEGORY',
         `${path}.category`,
         'Element category is not supported.',
       );
-    } else if (
-      category === 'lanthanoid' ||
-      category === 'actinoid'
-    ) {
-      if (group !== null) {
+    }
+
+    if (hasValidAtomicNumber && hasValidCategory) {
+      const expectedFBlockCategory =
+        getExpectedFBlockCategory(atomicNumber);
+
+      const isFBlockCategory =
+        category === 'lanthanoid' || category === 'actinoid';
+
+      if (
+        expectedFBlockCategory !== null &&
+        category !== expectedFBlockCategory
+      ) {
         addIssue(
           issues,
-          'INVALID_F_BLOCK_GROUP',
-          `${path}.group`,
-          'Lanthanoid and actinoid records must use a null group.',
+          'INVALID_F_BLOCK_CLASSIFICATION',
+          `${path}.category`,
+          `Atomic number ${atomicNumber} must use category ${expectedFBlockCategory}.`,
+        );
+      } else if (
+        expectedFBlockCategory === null &&
+        isFBlockCategory
+      ) {
+        addIssue(
+          issues,
+          'INVALID_F_BLOCK_CLASSIFICATION',
+          `${path}.category`,
+          `Atomic number ${atomicNumber} cannot use category ${category}.`,
         );
       }
+    }
 
-      if (typeof atomicNumber === 'number') {
-        const expectedCategory =
-          atomicNumber >= 57 && atomicNumber <= 71
-            ? 'lanthanoid'
-            : atomicNumber >= 89 && atomicNumber <= 103
-              ? 'actinoid'
-              : null;
+    const requiresNullGroup =
+      category === 'lanthanoid' || category === 'actinoid';
 
-        if (category !== expectedCategory) {
-          addIssue(
-            issues,
-            'INVALID_F_BLOCK_CLASSIFICATION',
-            `${path}.category`,
-            'F-block category does not match the atomic number.',
-          );
-        }
-      }
+    if (requiresNullGroup && group !== null) {
+      addIssue(
+        issues,
+        'INVALID_F_BLOCK_GROUP',
+        `${path}.group`,
+        'Lanthanoid and actinoid records must use a null group.',
+      );
     }
   }
 
-  for (let atomicNumber = 1; atomicNumber <= 118; atomicNumber += 1) {
+  for (
+    let atomicNumber = 1;
+    atomicNumber <= 118;
+    atomicNumber += 1
+  ) {
     if (!atomicNumbers.has(atomicNumber)) {
       addIssue(
         issues,
