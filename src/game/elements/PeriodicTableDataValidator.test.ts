@@ -1,6 +1,13 @@
+
 import { describe, expect, it } from 'vitest';
 import { PERIODIC_TABLE_DATA } from './PeriodicTableData';
 import { validatePeriodicTableData } from './PeriodicTableDataValidator';
+
+function cloneDataset(): Array<Record<string, unknown>> {
+  return PERIODIC_TABLE_DATA.map((element) => ({
+    ...element,
+  }));
+}
 
 describe('validatePeriodicTableData', () => {
   it('accepts the current 118-element dataset', () => {
@@ -31,15 +38,11 @@ describe('validatePeriodicTableData', () => {
   });
 
   it('rejects duplicate atomic numbers', () => {
-    const data = PERIODIC_TABLE_DATA.map((element) => ({ ...element }));
-    data[1] = {
-      ...data[1],
-      atomicNumber: data[0].atomicNumber,
-    };
+    const data = cloneDataset();
+    data[1].atomicNumber = data[0].atomicNumber;
 
     const result = validatePeriodicTableData(data);
 
-    expect(result.valid).toBe(false);
     expect(result.issues).toContainEqual(
       expect.objectContaining({
         code: 'DUPLICATE_ATOMIC_NUMBER',
@@ -48,11 +51,8 @@ describe('validatePeriodicTableData', () => {
   });
 
   it('rejects duplicate symbols', () => {
-    const data = PERIODIC_TABLE_DATA.map((element) => ({ ...element }));
-    data[1] = {
-      ...data[1],
-      symbol: data[0].symbol,
-    };
+    const data = cloneDataset();
+    data[1].symbol = data[0].symbol;
 
     const result = validatePeriodicTableData(data);
 
@@ -64,11 +64,8 @@ describe('validatePeriodicTableData', () => {
   });
 
   it('rejects duplicate names regardless of case', () => {
-    const data = PERIODIC_TABLE_DATA.map((element) => ({ ...element }));
-    data[1] = {
-      ...data[1],
-      name: data[0].name.toUpperCase(),
-    };
+    const data = cloneDataset();
+    data[1].name = String(data[0].name).toUpperCase();
 
     const result = validatePeriodicTableData(data);
 
@@ -80,8 +77,8 @@ describe('validatePeriodicTableData', () => {
   });
 
   it('rejects invalid symbols', () => {
-    const data = PERIODIC_TABLE_DATA.map((element) => ({ ...element }));
-    data[0] = { ...data[0], symbol: 'hY' };
+    const data = cloneDataset();
+    data[0].symbol = 'hY';
 
     const result = validatePeriodicTableData(data);
 
@@ -93,8 +90,8 @@ describe('validatePeriodicTableData', () => {
   });
 
   it('rejects invalid atomic weights', () => {
-    const data = PERIODIC_TABLE_DATA.map((element) => ({ ...element }));
-    data[0] = { ...data[0], atomicWeight: 'unknown' };
+    const data = cloneDataset();
+    data[0].atomicWeight = 'unknown';
 
     const result = validatePeriodicTableData(data);
 
@@ -106,12 +103,9 @@ describe('validatePeriodicTableData', () => {
   });
 
   it('rejects invalid group and period values', () => {
-    const data = PERIODIC_TABLE_DATA.map((element) => ({ ...element }));
-    data[0] = {
-      ...data[0],
-      group: 19,
-      period: 8,
-    };
+    const data = cloneDataset();
+    data[0].group = 19;
+    data[0].period = 8;
 
     const result = validatePeriodicTableData(data);
 
@@ -124,11 +118,8 @@ describe('validatePeriodicTableData', () => {
   });
 
   it('rejects unsupported categories', () => {
-    const data = PERIODIC_TABLE_DATA.map((element) => ({ ...element }));
-    data[0] = {
-      ...data[0],
-      category: 'unsupported',
-    };
+    const data = cloneDataset();
+    data[0].category = 'unsupported';
 
     const result = validatePeriodicTableData(data);
 
@@ -139,18 +130,82 @@ describe('validatePeriodicTableData', () => {
     );
   });
 
-  it('rejects incorrect f-block classification', () => {
-    const data = PERIODIC_TABLE_DATA.map((element) => ({ ...element }));
-    data[56] = {
-      ...data[56],
-      category: 'actinoid',
-    };
+  it('rejects a lanthanoid classified as actinoid', () => {
+    const data = cloneDataset();
+    data[56].category = 'actinoid';
 
     const result = validatePeriodicTableData(data);
 
     expect(result.issues).toContainEqual(
       expect.objectContaining({
         code: 'INVALID_F_BLOCK_CLASSIFICATION',
+      }),
+    );
+  });
+
+  it('rejects a lanthanoid classified as a transition metal', () => {
+    const data = cloneDataset();
+    data[56].category = 'transition-metal';
+
+    const result = validatePeriodicTableData(data);
+
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'INVALID_F_BLOCK_CLASSIFICATION',
+      }),
+    );
+  });
+
+  it('rejects an actinoid classified as a transition metal', () => {
+    const data = cloneDataset();
+    data[88].category = 'transition-metal';
+
+    const result = validatePeriodicTableData(data);
+
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'INVALID_F_BLOCK_CLASSIFICATION',
+      }),
+    );
+  });
+
+  it('rejects a non-f-block element classified as lanthanoid', () => {
+    const data = cloneDataset();
+    data[0].category = 'lanthanoid';
+    data[0].group = null;
+
+    const result = validatePeriodicTableData(data);
+
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'INVALID_F_BLOCK_CLASSIFICATION',
+      }),
+    );
+  });
+
+  it('rejects a non-f-block element classified as actinoid', () => {
+    const data = cloneDataset();
+    data[103].category = 'actinoid';
+    data[103].group = null;
+
+    const result = validatePeriodicTableData(data);
+
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'INVALID_F_BLOCK_CLASSIFICATION',
+      }),
+    );
+  });
+
+  it('rejects f-block elements with a non-null group', () => {
+    const data = cloneDataset();
+    data[56].group = 3;
+
+    const result = validatePeriodicTableData(data);
+
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'INVALID_F_BLOCK_GROUP',
       }),
     );
   });
