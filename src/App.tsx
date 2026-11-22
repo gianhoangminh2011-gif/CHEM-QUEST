@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import PhaserGame from './game/PhaserGame';
 import LabPanel from './game/LabPanel';
@@ -91,8 +92,29 @@ function App() {
       const existing = service.getTransaction(transactionId);
 
       if (existing) {
-        if (existing.status !== 'COMMITTED') {
+        if (existing.status === 'ROLLED_BACK') {
           return false;
+        }
+
+        // Recover a previously prepared transaction if its commit
+        // persistence failed during an earlier collection attempt.
+        if (existing.status === 'PREPARED') {
+          const recovered = service.commit(transactionId);
+
+          if (
+            !recovered.success ||
+            recovered.record.status !== 'COMMITTED'
+          ) {
+            console.error(
+              'CHEM QUEST: World collection recovery failed.',
+              recovered.success
+                ? recovered.record.status
+                : recovered.error,
+              recovered.success ? '' : recovered.message,
+            );
+
+            return false;
+          }
         }
 
         processedCrystalIds.current.add(resourceId);

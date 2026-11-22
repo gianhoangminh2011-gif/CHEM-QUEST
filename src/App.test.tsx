@@ -303,8 +303,8 @@ function createControlledStorage(
     removeItem: (key) => backingStorage.removeItem(key),
     setItem: (key, value) => {
       if (
-        shouldFail() &&
-        key === RUNTIME_INVENTORY_SAVE_KEY
+        key === RUNTIME_INVENTORY_SAVE_KEY &&
+        shouldFail()
       ) {
         throw new Error('Simulated inventory storage failure.');
       }
@@ -510,6 +510,101 @@ describe('App quest and inventory integration', () => {
       expect(
         controlledStorage.getItem(GAMEPLAY_SAVE_KEY),
       ).not.toBeNull();
+    } finally {
+      app?.unmount();
+
+      if (originalDescriptor) {
+        Object.defineProperty(
+          window,
+          'localStorage',
+          originalDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(window, 'localStorage');
+      }
+    }
+  });
+
+  it('recovers a PREPARED collection when commit persistence fails, without duplicating inventory', () => {
+    const originalDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      'localStorage',
+    );
+
+    const backingStorage = window.localStorage;
+    let inventoryWriteCount = 0;
+
+    const controlledStorage = createControlledStorage(
+      backingStorage,
+      () => {
+        inventoryWriteCount += 1;
+        return inventoryWriteCount === 2;
+      },
+    );
+
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: controlledStorage,
+    });
+
+    let app: ReturnType<typeof mountApp> | null = null;
+
+    try {
+      const initialGameplay = createGameplayState();
+
+      app = mountApp();
+      emitGameplayState(initialGameplay);
+
+      // Exclude the initial inventory hydration write.
+      inventoryWriteCount = 0;
+
+      const firstAttempt = collectThroughApp(
+        initialGameplay,
+        'crystal-retry-recovery',
+      );
+
+      expect(firstAttempt.accepted).toBe(false);
+      expect(firstAttempt.state).toEqual(initialGameplay);
+
+      expect(
+        loadRuntimeInventorySnapshot(controlledStorage),
+      ).toMatchObject({
+        inventory: { resources: {} },
+        revision: 0,
+        transactions: [
+          {
+            transactionId: 'world-collect-crystal-retry-recovery',
+            status: 'PREPARED',
+          },
+        ],
+      });
+
+      const retry = collectThroughApp(
+        initialGameplay,
+        'crystal-retry-recovery',
+      );
+
+      expect(retry.accepted).toBe(true);
+      expect(retry.state.collectedResourceIds).toContain(
+        'crystal-retry-recovery',
+      );
+
+      expect(
+        loadRuntimeInventorySnapshot(controlledStorage),
+      ).toMatchObject({
+        inventory: {
+          resources: {
+            'crystal-retry-recovery': 1,
+          },
+        },
+        revision: 1,
+        transactions: [
+          {
+            transactionId: 'world-collect-crystal-retry-recovery',
+            status: 'COMMITTED',
+          },
+        ],
+      });
     } finally {
       app?.unmount();
 
