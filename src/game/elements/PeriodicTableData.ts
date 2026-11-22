@@ -57,7 +57,7 @@ export const PERIODIC_TABLE_DATA: ChemicalElement[] = [
   { atomicNumber: 37, symbol: 'Rb', name: 'Rubidium', atomicWeight: '85.468', group: 1, period: 5, category: 'alkali-metal' },
   { atomicNumber: 38, symbol: 'Sr', name: 'Strontium', atomicWeight: '87.62', group: 2, period: 5, category: 'alkaline-earth-metal' },
   { atomicNumber: 39, symbol: 'Y', name: 'Yttrium', atomicWeight: '88.906', group: 3, period: 5, category: 'transition-metal' },
-  { atomicNumber: 40, symbol: 'Zr', name: 'Zirconium', atomicWeight: '91.224', group: 4, period: 5, category: 'transition-metal' },
+  { atomicNumber: 40, symbol: 'Zr', name: 'Zirconium', atomicWeight: '91.222', group: 4, period: 5, category: 'transition-metal' },
   { atomicNumber: 41, symbol: 'Nb', name: 'Niobium', atomicWeight: '92.906', group: 5, period: 5, category: 'transition-metal' },
   { atomicNumber: 42, symbol: 'Mo', name: 'Molybdenum', atomicWeight: '95.95', group: 6, period: 5, category: 'transition-metal' },
   { atomicNumber: 43, symbol: 'Tc', name: 'Technetium', atomicWeight: '[98]', group: 7, period: 5, category: 'transition-metal' },
