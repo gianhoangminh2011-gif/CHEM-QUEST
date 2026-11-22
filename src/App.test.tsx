@@ -275,6 +275,20 @@ function openInventory(host: HTMLElement) {
   act(() => inventoryNav.click());
 }
 
+function openCodex(host: HTMLElement) {
+  const codexNav = Array.from(
+    host.querySelectorAll('button'),
+  ).find((button) =>
+    button.textContent?.includes('Element Codex'),
+  );
+
+  if (!codexNav) {
+    throw new Error('Element Codex navigation button was not rendered.');
+  }
+
+  act(() => codexNav.click());
+}
+
 function createControlledStorage(
   backingStorage: Storage,
   shouldFail: () => boolean,
@@ -474,7 +488,6 @@ describe('App quest and inventory integration', () => {
         'crystal-storage-failure',
       );
 
-      // BootScene must not update gameplay after a failed collection.
       expect(result.accepted).toBe(false);
       expect(result.state).toEqual(initialGameplay);
 
@@ -654,7 +667,6 @@ describe('App quest and inventory integration', () => {
       expectedRevision: 0,
     });
 
-    // Inventory removal must not erase quest collection history.
     expect(loadGameplaySave(window.localStorage)).toEqual(gameplay);
 
     firstApp.unmount();
@@ -769,5 +781,51 @@ describe('App quest and inventory integration', () => {
         Reflect.deleteProperty(window, 'localStorage');
       }
     }
+  });
+
+  it('shows zero collected resources and the empty state in Element Codex', () => {
+    const app = mountApp();
+
+    emitGameplayState(createGameplayState());
+    openCodex(app.host);
+
+    expect(app.host.textContent).toContain(
+      'COLLECTED RESOURCES · 0',
+    );
+
+    expect(app.host.textContent).toContain(
+      'No crystals collected yet.',
+    );
+
+    app.unmount();
+  });
+
+  it('counts collected resources that are not mapped in Element Catalog', () => {
+    let gameplay = createGameplayState();
+
+    gameplay = updateGameplayState(gameplay, {
+      type: 'COLLECT_RESOURCE',
+      id: 'crystal-unmapped-test-01',
+    });
+
+    gameplay = updateGameplayState(gameplay, {
+      type: 'COLLECT_RESOURCE',
+      id: 'crystal-unmapped-test-02',
+    });
+
+    const app = mountApp();
+
+    emitGameplayState(gameplay);
+    openCodex(app.host);
+
+    expect(app.host.textContent).toContain(
+      'COLLECTED RESOURCES · 2',
+    );
+
+    expect(app.host.textContent).toContain(
+      '2 collected resource record(s) are not yet in the catalog.',
+    );
+
+    app.unmount();
   });
 });

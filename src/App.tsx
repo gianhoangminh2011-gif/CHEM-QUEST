@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 import PhaserGame from './game/PhaserGame';
 import LabPanel from './game/LabPanel';
@@ -622,9 +621,9 @@ function App() {
               </p>
 
               <div className="quest-objective">
-                <span>COLLECTED SAMPLES · {elementRecords.length}</span>
+                <span>COLLECTED RESOURCES · {crystalCount}</span>
 
-                {elementRecords.length === 0 && (
+                {crystalCount === 0 && (
                   <p>No crystals collected yet.</p>
                 )}
 
