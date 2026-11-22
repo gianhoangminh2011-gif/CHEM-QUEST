@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import PhaserGame from './game/PhaserGame';
 import LabPanel from './game/LabPanel';
+import PeriodicTable from './game/elements/PeriodicTable';
 import {
   createGameplayState,
   updateGameplayState,
@@ -30,7 +31,7 @@ import {
   type ResearchSample,
 } from './game/chemistry/ChemistrySystem';
 
-type Panel = 'quest' | 'codex' | 'bag' | 'lab';
+type Panel = 'quest' | 'codex' | 'periodic-table' | 'bag' | 'lab';
 
 function App() {
   const [activePanel, setActivePanel] = useState<Panel>('quest');
@@ -75,7 +76,6 @@ function App() {
     [],
   );
 
-  // Commit the durable inventory transaction BEFORE updating GameplayState.
   const handleCollectResource = useCallback(
     (resourceId: string): boolean => {
       const service = inventoryTransactions.current;
@@ -96,8 +96,6 @@ function App() {
           return false;
         }
 
-        // Recover a previously prepared transaction if its commit
-        // persistence failed during an earlier collection attempt.
         if (existing.status === 'PREPARED') {
           const recovered = service.commit(transactionId);
 
@@ -255,7 +253,6 @@ function App() {
     [],
   );
 
-  // Hydrate durable inventory and reconcile it with gameplay history.
   useEffect(() => {
     if (!hasReceivedGameplayState || hasHydratedRuntimeInventory) {
       return;
@@ -310,8 +307,6 @@ function App() {
       let reconciledGameplayState = gameplayState;
       let currentSnapshot = service.getSnapshot();
 
-      // A committed collection in the journal must also exist in gameplay
-      // history, including transactions recovered from PREPARED on startup.
       for (const transaction of service.getTransactions()) {
         if (
           transaction.status !== 'COMMITTED' ||
@@ -342,8 +337,6 @@ function App() {
         processedCrystalIds.current.add(resourceId);
       }
 
-      // Backfill legacy gameplay collections only when there is no durable
-      // collection, no existing inventory quantity, and no removal record.
       for (const resourceId of reconciledGameplayState.collectedResourceIds) {
         if (!resourceId.startsWith('crystal-')) continue;
 
@@ -402,7 +395,6 @@ function App() {
       setRuntimeInventory(service.getSnapshot().inventory);
       setHasHydratedRuntimeInventory(true);
 
-      // Keep the loaded snapshot reference explicit for diagnostics.
       if (durableSnapshot === null) {
         console.info(
           'CHEM QUEST: Initialized inventory from gameplay history.',
@@ -420,8 +412,6 @@ function App() {
     gameplayState,
   ]);
 
-  // Gameplay persistence must not be blocked by an earlier inventory error.
-  // Failed collection events do not update GameplayState in the first place.
   useEffect(() => {
     if (!hasReceivedGameplayState || !hasHydratedRuntimeInventory) {
       return;
@@ -531,6 +521,17 @@ function App() {
           </button>
 
           <button
+            className={
+              activePanel === 'periodic-table'
+                ? 'nav-item active'
+                : 'nav-item'
+            }
+            onClick={() => setActivePanel('periodic-table')}
+          >
+            <span>⚛</span> Periodic Table
+          </button>
+
+          <button
             className={activePanel === 'bag' ? 'nav-item active' : 'nav-item'}
             onClick={() => setActivePanel('bag')}
           >
@@ -572,26 +573,43 @@ function App() {
         <div className="game-column">
           <div className="game-heading">
             <div>
-              <p className="eyebrow">WORLD 01 · THE BEGINNING</p>
-              <h2>Emerald Frontier</h2>
+              <p className="eyebrow">
+                {activePanel === 'periodic-table'
+                  ? 'CHEMISTRY DATABASE'
+                  : 'WORLD 01 · THE BEGINNING'}
+              </p>
+              <h2>
+                {activePanel === 'periodic-table'
+                  ? 'Periodic Table'
+                  : 'Emerald Frontier'}
+              </h2>
             </div>
-            <span className="world-status">
-              <span className="status-dot" /> EXPLORATION
-            </span>
+
+            {activePanel !== 'periodic-table' && (
+              <span className="world-status">
+                <span className="status-dot" /> EXPLORATION
+              </span>
+            )}
           </div>
 
           <section className="game-container">
-            <PhaserGame
-              onGameplayStateChange={handleGameplayStateChange}
-              onChemistryBridgeChange={handleChemistryBridgeChange}
-              onCollectResource={handleCollectResource}
-            />
+            {activePanel === 'periodic-table' ? (
+              <PeriodicTable />
+            ) : (
+              <PhaserGame
+                onGameplayStateChange={handleGameplayStateChange}
+                onChemistryBridgeChange={handleChemistryBridgeChange}
+                onCollectResource={handleCollectResource}
+              />
+            )}
           </section>
 
-          <div className="game-footer">
-            <span>WASD / ARROW KEYS</span>
-            <span>MOVE YOUR EXPLORER</span>
-          </div>
+          {activePanel !== 'periodic-table' && (
+            <div className="game-footer">
+              <span>WASD / ARROW KEYS</span>
+              <span>MOVE YOUR EXPLORER</span>
+            </div>
+          )}
         </div>
 
         <aside className="info-panel">
@@ -600,9 +618,11 @@ function App() {
               ? 'CURRENT QUEST'
               : activePanel === 'codex'
                 ? 'ELEMENT CODEX'
-                : activePanel === 'bag'
-                  ? 'INVENTORY'
-                  : 'RESEARCH LAB'}
+                : activePanel === 'periodic-table'
+                  ? 'PERIODIC TABLE'
+                  : activePanel === 'bag'
+                    ? 'INVENTORY'
+                    : 'RESEARCH LAB'}
           </p>
 
           {activePanel === 'quest' && (
@@ -672,6 +692,17 @@ function App() {
                   </p>
                 )}
               </div>
+            </>
+          )}
+
+          {activePanel === 'periodic-table' && (
+            <>
+              <div className="quest-icon">⚛</div>
+              <h3>118 Elements</h3>
+              <p className="info-description">
+                Explore the periodic table, search by element name, symbol or
+                atomic number, and inspect scientific properties.
+              </p>
             </>
           )}
 
