@@ -2,6 +2,7 @@
 import { useMemo, useState } from 'react';
 import type { ChemicalElement, ElementCategory } from './ChemicalElement';
 import { PERIODIC_TABLE_DATA } from './PeriodicTableData';
+import ElementDetail from './ElementDetail';
 import './PeriodicTable.css';
 
 type PeriodicTableProps = {
@@ -52,7 +53,9 @@ function ElementCell({
         'periodic-element',
         `category-${element.category}`,
         selected ? 'selected' : '',
-      ].filter(Boolean).join(' ')}
+      ]
+        .filter(Boolean)
+        .join(' ')}
       style={{
         gridColumn: element.group ?? undefined,
         gridRow:
@@ -83,9 +86,10 @@ export default function PeriodicTable({
   );
 
   const visibleElements = useMemo(
-    () => PERIODIC_TABLE_DATA.filter(
-      (element) => matchesSearch(element, search),
-    ),
+    () =>
+      PERIODIC_TABLE_DATA.filter((element) =>
+        matchesSearch(element, search),
+      ),
     [search],
   );
 
@@ -213,43 +217,7 @@ export default function PeriodicTable({
         <p className="periodic-empty">No matching elements found.</p>
       )}
 
-      {selectedElement && (
-        <section className="element-detail" aria-live="polite">
-          <div className={`detail-symbol category-${selectedElement.category}`}>
-            <span>{selectedElement.atomicNumber}</span>
-            <strong>{selectedElement.symbol}</strong>
-            <small>{selectedElement.name}</small>
-          </div>
-
-          <div className="detail-information">
-            <p className="periodic-eyebrow">ELEMENT DETAILS</p>
-            <h3>{selectedElement.name}</h3>
-
-            <div className="detail-grid">
-              <div>
-                <span>Atomic number</span>
-                <strong>{selectedElement.atomicNumber}</strong>
-              </div>
-              <div>
-                <span>Atomic weight</span>
-                <strong>{selectedElement.atomicWeight}</strong>
-              </div>
-              <div>
-                <span>Group</span>
-                <strong>{selectedElement.group ?? '—'}</strong>
-              </div>
-              <div>
-                <span>Period</span>
-                <strong>{selectedElement.period}</strong>
-              </div>
-              <div>
-                <span>Category</span>
-                <strong>{CATEGORY_LABELS[selectedElement.category]}</strong>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
+      <ElementDetail element={selectedElement ?? null} />
     </section>
   );
 }
