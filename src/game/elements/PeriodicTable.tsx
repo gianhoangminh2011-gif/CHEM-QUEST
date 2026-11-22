@@ -55,7 +55,10 @@ function ElementCell({
       ].filter(Boolean).join(' ')}
       style={{
         gridColumn: element.group ?? undefined,
-        gridRow: element.period + 1,
+        gridRow:
+          element.group === null
+            ? undefined
+            : element.period + 1,
       }}
       onClick={onClick}
       aria-label={`${element.name}, ${element.symbol}, atomic number ${element.atomicNumber}`}
@@ -80,7 +83,9 @@ export default function PeriodicTable({
   );
 
   const visibleElements = useMemo(
-    () => PERIODIC_TABLE_DATA.filter((element) => matchesSearch(element, search)),
+    () => PERIODIC_TABLE_DATA.filter(
+      (element) => matchesSearch(element, search),
+    ),
     [search],
   );
 
@@ -89,7 +94,8 @@ export default function PeriodicTable({
   );
 
   const mainElements = visibleElements.filter(
-    (element) => element.category !== 'lanthanoid' &&
+    (element) =>
+      element.category !== 'lanthanoid' &&
       element.category !== 'actinoid',
   );
 
@@ -218,6 +224,7 @@ export default function PeriodicTable({
           <div className="detail-information">
             <p className="periodic-eyebrow">ELEMENT DETAILS</p>
             <h3>{selectedElement.name}</h3>
+
             <div className="detail-grid">
               <div>
                 <span>Atomic number</span>
