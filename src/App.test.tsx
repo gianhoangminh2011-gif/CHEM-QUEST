@@ -24,15 +24,12 @@ import { InventoryTransactionService } from './game/inventory/InventoryTransacti
 const appHarness = vi.hoisted(() => ({
   onGameplayStateChange:
     null as ((state: GameplayState) => void) | null,
-
   onCollectResource:
     null as ((resourceId: string) => boolean) | null,
-
   onCraftingTransaction:
     null as
       | ((transactionId: string, recipeId: string) => { success: boolean })
       | null,
-
   onRemoveResource:
     null as
       | ((resourceId: string) => {
@@ -49,7 +46,6 @@ vi.mock('./game/PhaserGame', () => ({
   }) => {
     appHarness.onGameplayStateChange = props.onGameplayStateChange;
     appHarness.onCollectResource = props.onCollectResource;
-
     return null;
   },
 }));
@@ -292,6 +288,7 @@ function openCodex(host: HTMLElement) {
 function createControlledStorage(
   backingStorage: Storage,
   shouldFail: () => boolean,
+  failureKey = RUNTIME_INVENTORY_SAVE_KEY,
 ): Storage {
   return {
     get length() {
@@ -302,11 +299,8 @@ function createControlledStorage(
     key: (index) => backingStorage.key(index),
     removeItem: (key) => backingStorage.removeItem(key),
     setItem: (key, value) => {
-      if (
-        key === RUNTIME_INVENTORY_SAVE_KEY &&
-        shouldFail()
-      ) {
-        throw new Error('Simulated inventory storage failure.');
+      if (key === failureKey && shouldFail()) {
+        throw new Error('Simulated storage failure.');
       }
 
       backingStorage.setItem(key, value);
@@ -360,7 +354,6 @@ describe('App quest and inventory integration', () => {
 
     expect(snapshot?.revision).toBe(0);
     expect(snapshot?.transactions).toHaveLength(0);
-
     expect(loadGameplaySave(window.localStorage)).toEqual(gameplay);
 
     app.unmount();
@@ -378,7 +371,6 @@ describe('App quest and inventory integration', () => {
     );
 
     expect(result.accepted).toBe(true);
-
     expect(result.state.collectedResourceIds).toContain(
       'crystal-water-new',
     );
@@ -431,7 +423,6 @@ describe('App quest and inventory integration', () => {
 
     const secondApp = mountApp();
 
-    // The saved gameplay state is restored before the second App hydrates.
     emitGameplayState(firstResult.state);
 
     const secondSnapshot = loadRuntimeInventorySnapshot(
@@ -456,7 +447,6 @@ describe('App quest and inventory integration', () => {
     );
 
     const backingStorage = window.localStorage;
-
     let failInventoryWrites = false;
 
     const controlledStorage = createControlledStorage(
@@ -491,9 +481,9 @@ describe('App quest and inventory integration', () => {
       expect(result.accepted).toBe(false);
       expect(result.state).toEqual(initialGameplay);
 
-      expect(
-        result.state.collectedResourceIds,
-      ).not.toContain('crystal-storage-failure');
+      expect(result.state.collectedResourceIds).not.toContain(
+        'crystal-storage-failure',
+      );
 
       expect(
         loadRuntimeInventorySnapshot(controlledStorage),
@@ -555,7 +545,6 @@ describe('App quest and inventory integration', () => {
       app = mountApp();
       emitGameplayState(initialGameplay);
 
-      // Exclude the initial inventory hydration write.
       inventoryWriteCount = 0;
 
       const firstAttempt = collectThroughApp(
@@ -607,6 +596,132 @@ describe('App quest and inventory integration', () => {
       });
     } finally {
       app?.unmount();
+
+      if (originalDescriptor) {
+        Object.defineProperty(
+          window,
+          'localStorage',
+          originalDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(window, 'localStorage');
+      }
+    }
+  });
+
+  it('recovers gameplay history after inventory commit succeeds but gameplay save fails', () => {
+    const originalDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      'localStorage',
+    );
+
+    const backingStorage = window.localStorage;
+    let failGameplayWrites = false;
+
+    const controlledStorage = createControlledStorage(
+      backingStorage,
+      () => failGameplayWrites,
+      GAMEPLAY_SAVE_KEY,
+    );
+
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: controlledStorage,
+    });
+
+    let firstApp: ReturnType<typeof mountApp> | null = null;
+    let secondApp: ReturnType<typeof mountApp> | null = null;
+
+    try {
+      const initialGameplay = createGameplayState();
+
+      firstApp = mountApp();
+      emitGameplayState(initialGameplay);
+
+      expect(loadGameplaySave(controlledStorage)).toEqual(
+        initialGameplay,
+      );
+
+      failGameplayWrites = true;
+
+      const result = collectThroughApp(
+        initialGameplay,
+        'crystal-cross-store-recovery',
+      );
+
+      expect(result.accepted).toBe(true);
+      expect(result.state.collectedResourceIds).toContain(
+        'crystal-cross-store-recovery',
+      );
+
+      expect(
+        loadRuntimeInventorySnapshot(controlledStorage),
+      ).toMatchObject({
+        inventory: {
+          resources: {
+            'crystal-cross-store-recovery': 1,
+          },
+        },
+        revision: 1,
+        transactions: [
+          {
+            transactionId:
+              'world-collect-crystal-cross-store-recovery',
+            status: 'COMMITTED',
+          },
+        ],
+      });
+
+      // The failed Gameplay write must leave the previous save intact.
+      expect(loadGameplaySave(controlledStorage)).toEqual(
+        initialGameplay,
+      );
+
+      firstApp.unmount();
+      firstApp = null;
+
+      // Simulate reload with the previous Gameplay save.
+      failGameplayWrites = false;
+
+      secondApp = mountApp();
+
+      const savedGameplay = loadGameplaySave(controlledStorage);
+
+      expect(savedGameplay).not.toBeNull();
+
+      emitGameplayState(savedGameplay!);
+      openCodex(secondApp.host);
+
+      // Hydration must recover the committed collection from the journal.
+      expect(secondApp.host.textContent).toContain(
+        'COLLECTED RESOURCES · 1',
+      );
+
+      expect(
+        loadGameplaySave(controlledStorage)?.collectedResourceIds,
+      ).toContain('crystal-cross-store-recovery');
+
+      // Recovery must not duplicate the committed inventory transaction.
+      expect(
+        loadRuntimeInventorySnapshot(controlledStorage),
+      ).toMatchObject({
+        inventory: {
+          resources: {
+            'crystal-cross-store-recovery': 1,
+          },
+        },
+        revision: 1,
+        transactions: [
+          {
+            transactionId:
+              'world-collect-crystal-cross-store-recovery',
+            status: 'COMMITTED',
+          },
+        ],
+      });
+    } finally {
+      firstApp?.unmount();
+      secondApp?.unmount();
 
       if (originalDescriptor) {
         Object.defineProperty(
@@ -794,7 +909,6 @@ describe('App quest and inventory integration', () => {
     );
 
     const backingStorage = window.localStorage;
-
     let failInventoryWrites = false;
 
     const controlledStorage = createControlledStorage(
