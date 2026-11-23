@@ -18,7 +18,8 @@ Files
 
 - "src/game/elements/FormulaCompound.ts"
 - "src/game/elements/FormulaCompound.test.ts"
-- "src/game/elements/PeriodicTableData.ts" (existing dependency; not modified by this work package)
+- "src/game/elements/PeriodicTableData.ts"
+  - Existing dependency; not modified by this work package.
 
 Formula Parser
 
@@ -76,18 +77,21 @@ Data Integrity
 
 Validation
 
-Local validation was reported as passing:
+The following results were reported from local execution:
 
 Validation| Result
 "npm test"| PASS — 309/309 tests
 "npm run build"| PASS
 "npx tsc --noEmit"| PASS
+"git diff --check"| PASS
 
 The production build reported a bundle-size warning. This warning did not cause the build to fail.
 
-These results are based on the user's reported local execution and have not been independently reproduced in this review.
+These results are based on user-reported local execution and have not been independently reproduced in this documentation review.
 
 Integration Status
+
+WP-FC-01 is reported merged into "main".
 
 This work package provides a foundational parser and compound registry.
 
@@ -98,4 +102,10 @@ It does not include:
 - Chemical reaction simulation.
 - Bond or molecular geometry inference.
 
-No commit, push, merge, release, or deployment is included in this documentation update.
+Work Package Status
+
+- Scope: Completed.
+- Implementation: Completed.
+- Local validation: Reported passing.
+- Merge: Confirmed by user.
+- Release and deployment: Not confirmed.
