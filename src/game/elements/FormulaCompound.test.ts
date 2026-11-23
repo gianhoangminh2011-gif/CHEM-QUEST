@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseChemicalFormula, buildCompoundRegistry, getApprovedCompoundById } from "./FormulaCompound";
+import {
+  parseChemicalFormula,
+  buildCompoundRegistry,
+  getApprovedCompoundById,
+} from "./FormulaCompound";
 
 describe("parseChemicalFormula", () => {
   it.each([
@@ -48,13 +52,93 @@ describe("parseChemicalFormula", () => {
     const result = parseChemicalFormula("H999999999999999999999");
 
     expect(result.valid).toBe(false);
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "INVALID_SUBSCRIPT",
+        }),
+      ]),
+    );
   });
 
-  it("returns immutable composition and issues", () => {
+  it("rejects formulas longer than the maximum length", () => {
+    const result = parseChemicalFormula("H".repeat(257));
+
+    expect(result.valid).toBe(false);
+    expect(result.composition).toHaveLength(0);
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "FORMULA_TOO_LONG",
+        }),
+      ]),
+    );
+  });
+
+  it("accepts formulas at the maximum length", () => {
+    const formula = "H".repeat(256);
+    const result = parseChemicalFormula(formula);
+
+    // Repeated H symbols are valid and are combined into one count.
+    expect(result.valid).toBe(true);
+    expect(result.composition).toEqual([
+      expect.objectContaining({
+        symbol: "H",
+        count: 256,
+      }),
+    ]);
+  });
+
+  it("rejects nesting deeper than the maximum depth", () => {
+    const formula = `${"(".repeat(33)}H${")".repeat(33)}`;
+    const result = parseChemicalFormula(formula);
+
+    expect(result.valid).toBe(false);
+    expect(result.composition).toHaveLength(0);
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "NESTING_TOO_DEEP",
+        }),
+      ]),
+    );
+  });
+
+  it("accepts nesting at the maximum depth", () => {
+    const formula = `${"(".repeat(32)}H${")".repeat(32)}`;
+    const result = parseChemicalFormula(formula);
+
+    expect(result.valid).toBe(true);
+    expect(result.composition).toEqual([
+      expect.objectContaining({
+        symbol: "H",
+        count: 1,
+      }),
+    ]);
+  });
+
+  it("returns deeply immutable composition and issues", () => {
     const result = parseChemicalFormula("H2O");
 
+    expect(Object.isFrozen(result)).toBe(true);
     expect(Object.isFrozen(result.composition)).toBe(true);
     expect(Object.isFrozen(result.issues)).toBe(true);
+
+    for (const element of result.composition) {
+      expect(Object.isFrozen(element)).toBe(true);
+    }
+
+    for (const issue of result.issues) {
+      expect(Object.isFrozen(issue)).toBe(true);
+    }
+  });
+
+  it("returns deeply immutable issues for invalid formulas", () => {
+    const result = parseChemicalFormula("Xx2");
+
+    expect(result.valid).toBe(false);
+    expect(Object.isFrozen(result.issues)).toBe(true);
+    expect(Object.isFrozen(result.issues[0])).toBe(true);
   });
 
   it("includes atomic numbers from periodic table data", () => {
@@ -180,12 +264,27 @@ describe("Compound registry", () => {
     expect(registry.valid).toBe(false);
   });
 
-  it("freezes registry data", () => {
+  it("freezes registry data deeply", () => {
     const registry = buildCompoundRegistry([draftCompound]);
 
     expect(Object.isFrozen(registry)).toBe(true);
     expect(Object.isFrozen(registry.compounds)).toBe(true);
     expect(Object.isFrozen(registry.compounds[0])).toBe(true);
+    expect(Object.isFrozen(registry.compounds[0].source)).toBe(true);
+    expect(Object.isFrozen(registry.issues)).toBe(true);
+  });
+
+  it("freezes registry issue objects", () => {
+    const registry = buildCompoundRegistry([
+      draftCompound,
+      { ...draftCompound, name: "Duplicate" },
+    ]);
+
+    expect(registry.issues.length).toBeGreaterThan(0);
+
+    for (const issue of registry.issues) {
+      expect(Object.isFrozen(issue)).toBe(true);
+    }
   });
 
   it("does not expose approved entries from an invalid registry", () => {
