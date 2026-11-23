@@ -1,7 +1,9 @@
-import { PERIODIC_TABLE_DATA } from "../elements/PeriodicTableData";
+import { PERIODIC_TABLE_DATA } from "./PeriodicTableData";
 
 export type FormulaIssueCode =
   | "EMPTY_FORMULA"
+  | "FORMULA_TOO_LONG"
+  | "NESTING_TOO_DEEP"
   | "INVALID_TOKEN"
   | "UNKNOWN_ELEMENT"
   | "INVALID_SUBSCRIPT"
@@ -24,13 +26,16 @@ export interface ElementComposition {
 export interface FormulaParseResult {
   valid: boolean;
   formula: string;
-  composition: ElementComposition[];
-  issues: FormulaIssue[];
+  composition: readonly ElementComposition[];
+  issues: readonly FormulaIssue[];
 }
 
 interface FormulaParserState {
   position: number;
 }
+
+const MAX_FORMULA_LENGTH = 256;
+const MAX_NESTING_DEPTH = 32;
 
 const ELEMENTS_BY_SYMBOL = new Map(
   PERIODIC_TABLE_DATA.map((element) => [
@@ -44,7 +49,28 @@ function createIssue(
   message: string,
   position?: number,
 ): FormulaIssue {
-  return { code, message, position };
+  return Object.freeze({ code, message, position });
+}
+
+function createParseResult(
+  formula: string,
+  composition: ElementComposition[],
+  issues: FormulaIssue[],
+): FormulaParseResult {
+  const frozenComposition = Object.freeze(
+    composition.map((element) => Object.freeze({ ...element })),
+  );
+
+  const frozenIssues = Object.freeze(
+    issues.map((issue) => Object.freeze({ ...issue })),
+  );
+
+  return Object.freeze({
+    valid: frozenIssues.length === 0 && frozenComposition.length > 0,
+    formula,
+    composition: frozenComposition,
+    issues: frozenIssues,
+  });
 }
 
 function isDigit(character: string | undefined): boolean {
@@ -59,13 +85,30 @@ function isLowercase(character: string | undefined): boolean {
   return character !== undefined && character >= "a" && character <= "z";
 }
 
+function getMaximumNestingDepth(formula: string): number {
+  let currentDepth = 0;
+  let maximumDepth = 0;
+
+  for (const character of formula) {
+    if (character === "(") {
+      currentDepth += 1;
+      maximumDepth = Math.max(maximumDepth, currentDepth);
+    } else if (character === ")") {
+      currentDepth = Math.max(0, currentDepth - 1);
+    }
+  }
+
+  return maximumDepth;
+}
+
 function addCounts(
   target: Map<string, number>,
   source: Map<string, number>,
   multiplier: number,
 ): boolean {
   for (const [symbol, count] of source) {
-    const nextCount = (target.get(symbol) ?? 0) + count * multiplier;
+    const nextCount =
+      (target.get(symbol) ?? 0) + count * multiplier;
 
     if (!Number.isSafeInteger(nextCount) || nextCount <= 0) {
       return false;
@@ -226,7 +269,7 @@ function parseGroup(
 
     const nextCount = (composition.get(symbol) ?? 0) + count;
 
-    if (!Number.isSafeInteger(nextCount)) {
+    if (!Number.isSafeInteger(nextCount) || nextCount <= 0) {
       issues.push(
         createIssue(
           "UNSAFE_COUNT",
@@ -258,22 +301,36 @@ export function parseChemicalFormula(
   input: string,
 ): FormulaParseResult {
   const formula = input.trim();
-  const issues: FormulaIssue[] = [];
 
   if (!formula) {
-    return {
-      valid: false,
-      formula,
-      composition: [],
-      issues: [
-        createIssue(
-          "EMPTY_FORMULA",
-          "Chemical formula cannot be empty.",
-        ),
-      ],
-    };
+    return createParseResult(formula, [], [
+      createIssue(
+        "EMPTY_FORMULA",
+        "Chemical formula cannot be empty.",
+      ),
+    ]);
   }
 
+  if (formula.length > MAX_FORMULA_LENGTH) {
+    return createParseResult(formula, [], [
+      createIssue(
+        "FORMULA_TOO_LONG",
+        `Chemical formula cannot exceed ${MAX_FORMULA_LENGTH} characters.`,
+        MAX_FORMULA_LENGTH,
+      ),
+    ]);
+  }
+
+  if (getMaximumNestingDepth(formula) > MAX_NESTING_DEPTH) {
+    return createParseResult(formula, [], [
+      createIssue(
+        "NESTING_TOO_DEEP",
+        `Formula nesting cannot exceed ${MAX_NESTING_DEPTH} levels.`,
+      ),
+    ]);
+  }
+
+  const issues: FormulaIssue[] = [];
   const state: FormulaParserState = { position: 0 };
 
   const parsed = parseGroup(formula, state, issues);
@@ -316,12 +373,7 @@ export function parseChemicalFormula(
     });
   }
 
-  return {
-    valid: issues.length === 0 && composition.length > 0,
-    formula,
-    composition: Object.freeze(composition),
-    issues: Object.freeze(issues),
-  };
+  return createParseResult(formula, composition, issues);
 }
 
 export type CompoundStatus =
@@ -440,10 +492,14 @@ export function buildCompoundRegistry(
     }),
   );
 
+  const frozenIssues = issues.map((issue) =>
+    Object.freeze({ ...issue }),
+  );
+
   return Object.freeze({
     compounds: Object.freeze(frozenCompounds),
-    issues: Object.freeze(issues),
-    valid: issues.length === 0,
+    issues: Object.freeze(frozenIssues),
+    valid: frozenIssues.length === 0,
   });
 }
 
