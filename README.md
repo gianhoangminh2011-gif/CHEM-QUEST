@@ -1,37 +1,33 @@
-WP-FC-01 — Formula & Compound Foundation
+CHEM QUEST
 
-Scope
+A Chemistry Learning Adventure
 
-This package introduces the foundational domain layer for chemical formula parsing and compound records.
+CHEM QUEST is an educational chemistry game designed to help players explore chemistry through interactive gameplay, challenges, and progression.
 
-It is limited to:
+---
 
+Project Overview
+
+The project aims to make chemistry more engaging by combining educational content with game mechanics.
+
+Core development areas include:
+
+- Periodic table and element data.
 - Chemical formula parsing.
-- Element symbol validation against periodic table data.
-- Element composition extraction.
-- Compound record validation.
-- Draft/review/approved/rejected lifecycle states.
-- Source and approval metadata requirements.
-- Unit tests for parser and registry behavior.
+- Compound records and validation.
+- Inventory and crafting systems.
+- Quests, challenges, and progression.
+- Interactive learning experiences.
 
-Files
+Core Features
 
-- "src/game/elements/FormulaCompound.ts"
-- "src/game/elements/FormulaCompound.test.ts"
-- "src/game/elements/PeriodicTableData.ts"
-  - Existing dependency; not modified by this work package.
+1. Periodic Table
 
-Formula Parser
+Provides structured element data for use throughout the game.
 
-The parser supports:
+2. Formula Parsing
 
-- Chemical element symbols.
-- Positive integer subscripts.
-- Nested round-bracket groups.
-- Element validation using "PERIODIC_TABLE_DATA".
-- Safe integer overflow checks.
-- Maximum formula length of 256 characters.
-- Maximum nesting depth of 32 levels.
+Supports chemical formula parsing, element validation, and element composition extraction.
 
 Examples:
 
@@ -40,72 +36,118 @@ Examples:
 - "NaCl"
 - "Ca(OH)2"
 - "Al2(SO4)3"
-- "K4(ON(SO3)2)2"
 
-The parser does not infer:
+3. Compound Registry
 
-- Chemical bonds.
-- Oxidation states.
-- Molecular geometry.
-- Physical properties.
-- Reaction behavior.
+Manages compound records and their validation lifecycle.
 
-Compound Lifecycle
-
-Supported compound statuses:
+Supported statuses:
 
 - "DRAFT"
 - "REVIEW_REQUIRED"
 - "APPROVED"
 - "REJECTED"
 
-Every compound requires a source reference.
+Each compound requires a source reference. Approved compounds additionally require approval metadata.
 
-An approved compound additionally requires:
+4. Gameplay Systems
 
-- "approvedBy"
-- "approvalReference"
+The project also includes development work on inventory, crafting, quests, and other gameplay systems.
 
-Only approved records from a valid registry can be returned by "getApprovedCompoundById".
+Feature availability depends on the current implementation status.
+
+---
+
+WP-FC-01 — Formula & Compound Foundation
+
+Status: Implementation completed; merge into "main" confirmed by the project owner.
+
+This work package establishes the foundational domain layer for chemical formula parsing and compound records.
+
+Scope
+
+- Chemical formula parsing.
+- Element symbol validation against periodic table data.
+- Element composition extraction.
+- Compound record validation.
+- Draft, review, approved, and rejected lifecycle states.
+- Source and approval metadata requirements.
+- Unit tests for parser and registry behavior.
+
+Files
+
+- "src/game/elements/FormulaCompound.ts"
+- "src/game/elements/FormulaCompound.test.ts"
+- "src/game/elements/PeriodicTableData.ts" — existing dependency, not modified by this work package.
+
+Parser Constraints
+
+- Maximum formula length: 256 characters.
+- Maximum nesting depth: 32 levels.
+- Positive integer subscripts.
+- Nested round-bracket groups.
+- Safe integer overflow checks.
+- Element validation using "PERIODIC_TABLE_DATA".
+
+The parser does not infer chemical bonds, oxidation states, molecular geometry, physical properties, or reaction behavior.
 
 Data Integrity
 
-- Parse results and their nested composition and issue objects are immutable.
+- Parse results and nested composition and issue objects are immutable.
 - Registry records, source metadata, and registry issues are immutable.
 - Duplicate compound IDs are rejected.
 - Invalid formulas and missing approval metadata prevent registry validation from passing.
+- Only approved records from a valid registry can be returned by "getApprovedCompoundById".
 
 Validation
 
 The following results were reported from local execution:
 
-Validation| Result
+Check| Reported result
 "npm test"| PASS — 309/309 tests
 "npm run build"| PASS
 "npx tsc --noEmit"| PASS
 "git diff --check"| PASS
 
-The production build reported a bundle-size warning. This warning did not cause the build to fail.
+The production build reported a bundle-size warning that did not cause the build to fail.
 
-These results are based on user-reported local execution and have not been independently reproduced in this documentation review.
+These results are user-reported and have not been independently reproduced in this documentation review.
 
-Integration Status
+---
 
-WP-FC-01 is reported merged into "main".
+Development Principles
 
-This work package provides a foundational parser and compound registry.
+- Keep chemistry data structured and consistent.
+- Validate data before it enters trusted registries.
+- Separate domain logic from gameplay presentation.
+- Maintain test coverage for core systems.
+- Make incremental changes through scoped work packages.
 
-It does not include:
+Project Status
 
-- Gameplay integration.
-- An official compound dataset.
-- Chemical reaction simulation.
-- Bond or molecular geometry inference.
+CHEM QUEST is under active development.
 
-Work Package Status
+Completed work packages and reported validation results should be distinguished from features that are still planned or in progress.
 
-- Scope: Completed.
-- Implementation: Completed.
-- Local validation: Reported passing.
-- Merge: Confirmed by user.
-- Release and deployment: Not confirmed.
+Area| Status
+Formula & Compound Foundation (WP-FC-01)| Completed
+Periodic Table Foundation| Existing dependency
+Inventory and Crafting| Ongoing development
+Quest and Progression Systems| Ongoing development
+Release and Deployment| Not confirmed
+
+---
+
+Contributing
+
+Development should follow the project's scoped work-package process.
+
+Changes should be reviewed and validated before integration into "main".
+
+Disclaimer
+
+CHEM QUEST is an educational project. Its chemistry data and explanations are intended for learning purposes and should not replace authoritative scientific references.
+
+---
+
+CHEM QUEST — Learn Chemistry Through Play.
