@@ -1,8 +1,9 @@
-WP-FC-01 — Formula & Compound Foundation
+# WP-FC-01 — Formula & Compound Foundation
 
-Scope
+## Scope
 
-This package introduces the foundational domain layer for chemical formula parsing and compound records.
+This package introduces the foundational domain layer for chemical
+formula parsing and compound records.
 
 It is limited to:
 
@@ -14,32 +15,33 @@ It is limited to:
 - Source and approval metadata requirements.
 - Unit tests for parser and registry behavior.
 
-Files
+## Files
 
-- "src/game/elements/FormulaCompound.ts"
-- "src/game/elements/FormulaCompound.test.ts"
-- "src/game/elements/PeriodicTableData.ts" (existing dependency; not modified by this work package)
+- `src/game/elements/FormulaCompound.ts`
+- `src/game/elements/FormulaCompound.test.ts`
+- `src/game/elements/PeriodicTableData.ts`
+  - Existing dependency; not modified by this work package.
 
-Formula Parser
+## Formula Parser
 
 The parser supports:
 
 - Chemical element symbols.
 - Positive integer subscripts.
 - Nested round-bracket groups.
-- Element validation using "PERIODIC_TABLE_DATA".
+- Element validation using `PERIODIC_TABLE_DATA`.
 - Safe integer overflow checks.
 - Maximum formula length of 256 characters.
 - Maximum nesting depth of 32 levels.
 
 Examples:
 
-- "H2O"
-- "CO2"
-- "NaCl"
-- "Ca(OH)2"
-- "Al2(SO4)3"
-- "K4(ON(SO3)2)2"
+- `H2O`
+- `CO2`
+- `NaCl`
+- `Ca(OH)2`
+- `Al2(SO4)3`
+- `K4(ON(SO3)2)2`
 
 The parser does not infer:
 
@@ -49,48 +51,55 @@ The parser does not infer:
 - Physical properties.
 - Reaction behavior.
 
-Compound Lifecycle
+## Compound Lifecycle
 
 Supported compound statuses:
 
-- "DRAFT"
-- "REVIEW_REQUIRED"
-- "APPROVED"
-- "REJECTED"
+- `DRAFT`
+- `REVIEW_REQUIRED`
+- `APPROVED`
+- `REJECTED`
 
 Every compound requires a source reference.
 
 An approved compound additionally requires:
 
-- "approvedBy"
-- "approvalReference"
+- `approvedBy`
+- `approvalReference`
 
-Only approved records from a valid registry can be returned by "getApprovedCompoundById".
+Only approved records from a valid registry can be returned by
+`getApprovedCompoundById`.
 
-Data Integrity
+## Data Integrity
 
 - Parse results and their nested composition and issue objects are immutable.
 - Registry records, source metadata, and registry issues are immutable.
 - Duplicate compound IDs are rejected.
-- Invalid formulas and missing approval metadata prevent registry validation from passing.
+- Invalid formulas and missing approval metadata prevent registry validation
+  from passing.
 
-Validation
+## Validation
 
-Local validation was reported as passing:
+The following results were reported from local execution:
 
-Validation| Result
-"npm test"| PASS — 309/309 tests
-"npm run build"| PASS
-"npx tsc --noEmit"| PASS
+| Validation | Result |
+|---|---|
+| `npm test` | PASS — 309/309 tests |
+| `npm run build` | PASS |
+| `npx tsc --noEmit` | PASS |
+| `git diff --check` | PASS |
 
-The production build reported a bundle-size warning. This warning did not cause the build to fail.
+The production build reported a bundle-size warning.
+This warning did not cause the build to fail.
 
-These results are based on the user's reported local execution and have not been independently reproduced in this review.
+These results are based on user-reported local execution and have not been
+independently reproduced in this documentation review.
 
-Integration Status
+## Integration Status
+
+**WP-FC-01 is reported merged into `main`.**
 
 This work package provides a foundational parser and compound registry.
-
 It does not include:
 
 - Gameplay integration.
@@ -98,4 +107,10 @@ It does not include:
 - Chemical reaction simulation.
 - Bond or molecular geometry inference.
 
-No commit, push, merge, release, or deployment is included in this documentation update.
+## Work Package Status
+
+- Scope: Completed.
+- Implementation: Completed.
+- Local validation: Reported passing.
+- Merge: Confirmed by user.
+- Release and deployment: Not confirmed.
