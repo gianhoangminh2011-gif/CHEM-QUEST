@@ -1,9 +1,8 @@
-# WP-FC-01 — Formula & Compound Foundation
+WP-FC-01 — Formula & Compound Foundation
 
-## Scope
+Scope
 
-This package introduces the foundational domain layer for chemical
-formula parsing and compound records.
+This package introduces the foundational domain layer for chemical formula parsing and compound records.
 
 It is limited to:
 
@@ -15,29 +14,32 @@ It is limited to:
 - Source and approval metadata requirements.
 - Unit tests for parser and registry behavior.
 
-## Files
+Files
 
-- `src/game/chemistry/FormulaCompound.ts`
-- `src/game/chemistry/FormulaCompound.test.ts`
+- "src/game/elements/FormulaCompound.ts"
+- "src/game/elements/FormulaCompound.test.ts"
+- "src/game/elements/PeriodicTableData.ts" (existing dependency; not modified by this work package)
 
-## Formula parser
+Formula Parser
 
 The parser supports:
 
-- Element symbols.
+- Chemical element symbols.
 - Positive integer subscripts.
 - Nested round-bracket groups.
-- Element validation using `PERIODIC_TABLE_DATA`.
+- Element validation using "PERIODIC_TABLE_DATA".
 - Safe integer overflow checks.
+- Maximum formula length of 256 characters.
+- Maximum nesting depth of 32 levels.
 
 Examples:
 
-- `H2O`
-- `CO2`
-- `NaCl`
-- `Ca(OH)2`
-- `Al2(SO4)3`
-- `K4(ON(SO3)2)2`
+- "H2O"
+- "CO2"
+- "NaCl"
+- "Ca(OH)2"
+- "Al2(SO4)3"
+- "K4(ON(SO3)2)2"
 
 The parser does not infer:
 
@@ -47,39 +49,53 @@ The parser does not infer:
 - Physical properties.
 - Reaction behavior.
 
-## Compound lifecycle
+Compound Lifecycle
 
-Compound statuses:
+Supported compound statuses:
 
-- `DRAFT`
-- `REVIEW_REQUIRED`
-- `APPROVED`
-- `REJECTED`
+- "DRAFT"
+- "REVIEW_REQUIRED"
+- "APPROVED"
+- "REJECTED"
 
 Every compound requires a source reference.
 
 An approved compound additionally requires:
 
-- `approvedBy`
-- `approvalReference`
+- "approvedBy"
+- "approvalReference"
 
-Only approved records can be returned by
-`getApprovedCompoundById`.
+Only approved records from a valid registry can be returned by "getApprovedCompoundById".
 
-## Validation
+Data Integrity
 
-The standalone source was checked with strict TypeScript settings.
+- Parse results and their nested composition and issue objects are immutable.
+- Registry records, source metadata, and registry issues are immutable.
+- Duplicate compound IDs are rejected.
+- Invalid formulas and missing approval metadata prevent registry validation from passing.
 
-Runtime smoke tests were executed against a temporary periodic-table
-fixture.
+Validation
 
-Vitest, full repository typecheck, and production build have not yet
-been executed in the target repository environment.
+Local validation was reported as passing:
 
-## Integration notes
+Validation| Result
+"npm test"| PASS — 309/309 tests
+"npm run build"| PASS
+"npx tsc --noEmit"| PASS
 
-This package has not been merged into the target repository.
+The production build reported a bundle-size warning. This warning did not cause the build to fail.
 
-No commit, push, merge, release, or deployment was performed.
+These results are based on the user's reported local execution and have not been independently reproduced in this review.
 
-No official compound dataset is included.
+Integration Status
+
+This work package provides a foundational parser and compound registry.
+
+It does not include:
+
+- Gameplay integration.
+- An official compound dataset.
+- Chemical reaction simulation.
+- Bond or molecular geometry inference.
+
+No commit, push, merge, release, or deployment is included in this documentation update.
