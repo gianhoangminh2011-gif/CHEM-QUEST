@@ -1,9 +1,13 @@
+
 import { describe, expect, it } from "vitest";
 
 import {
   parseChemicalFormula,
   buildCompoundRegistry,
   getApprovedCompoundById,
+  getCompoundElementComposition,
+  getCompoundReactionIds,
+  type ChemicalCompound,
 } from "./FormulaCompound";
 
 describe("parseChemicalFormula", () => {
@@ -79,7 +83,6 @@ describe("parseChemicalFormula", () => {
     const formula = "H".repeat(256);
     const result = parseChemicalFormula(formula);
 
-    // Repeated H symbols are valid and are combined into one count.
     expect(result.valid).toBe(true);
     expect(result.composition).toEqual([
       expect.objectContaining({
@@ -301,5 +304,284 @@ describe("Compound registry", () => {
         "compound-carbon-dioxide",
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("Compound registry runtime validation", () => {
+  const validDraft: ChemicalCompound = {
+    id: "compound-water",
+    name: "Water",
+    formula: "H2O",
+    status: "DRAFT",
+    source: {
+      reference: "https://example.org/water",
+    },
+  };
+
+  const validApproved: ChemicalCompound = {
+    id: "compound-carbon-dioxide",
+    name: "Carbon dioxide",
+    formula: "CO2",
+    status: "APPROVED",
+    source: {
+      reference: "https://example.org/carbon-dioxide",
+    },
+    approvedBy: "reviewer",
+    approvalReference: "approval-001",
+  };
+
+  it("does not crash when registry input is null", () => {
+    const registry = buildCompoundRegistry(
+      null as unknown as readonly ChemicalCompound[],
+    );
+
+    expect(registry.valid).toBe(false);
+    expect(registry.compounds).toHaveLength(0);
+    expect(registry.issues.length).toBeGreaterThan(0);
+  });
+
+  it("does not crash when registry input is not an array", () => {
+    const registry = buildCompoundRegistry(
+      {} as unknown as readonly ChemicalCompound[],
+    );
+
+    expect(registry.valid).toBe(false);
+    expect(registry.compounds).toHaveLength(0);
+  });
+
+  it.each([null, undefined, 42, "invalid", true, []])(
+    "rejects malformed registry entry: %s",
+    (entry) => {
+      const registry = buildCompoundRegistry(
+        [entry] as unknown as readonly ChemicalCompound[],
+      );
+
+      expect(registry.valid).toBe(false);
+      expect(registry.issues.length).toBeGreaterThan(0);
+    },
+  );
+
+  it("rejects missing and malformed compound fields", () => {
+    const malformed = {
+      id: "INVALID ID",
+      name: "",
+      formula: 123,
+      status: "UNKNOWN",
+      source: null,
+    };
+
+    const registry = buildCompoundRegistry(
+      [malformed] as unknown as readonly ChemicalCompound[],
+    );
+
+    expect(registry.valid).toBe(false);
+    expect(registry.issues.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("rejects malformed optional source metadata", () => {
+    const malformed = {
+      ...validDraft,
+      source: {
+        reference: "https://example.org/water",
+        publisher: 123,
+        accessedAt: false,
+      },
+    };
+
+    const registry = buildCompoundRegistry(
+      [malformed] as unknown as readonly ChemicalCompound[],
+    );
+
+    expect(registry.valid).toBe(false);
+    expect(
+      registry.issues.some((issue) =>
+        issue.message.includes("publisher"),
+      ),
+    ).toBe(true);
+    expect(
+      registry.issues.some((issue) =>
+        issue.message.includes("accessedAt"),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects malformed reaction link collections", () => {
+    const malformed = {
+      ...validDraft,
+      reactionIds: "reaction-001",
+    };
+
+    const registry = buildCompoundRegistry(
+      [malformed] as unknown as readonly ChemicalCompound[],
+    );
+
+    expect(registry.valid).toBe(false);
+    expect(
+      registry.issues.some((issue) =>
+        issue.message.includes("reactionIds"),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects invalid and duplicate reaction identifiers", () => {
+    const malformed = {
+      ...validDraft,
+      reactionIds: [
+        "reaction-001",
+        "INVALID ID",
+        "reaction-001",
+      ],
+    };
+
+    const registry = buildCompoundRegistry([malformed]);
+
+    expect(registry.valid).toBe(false);
+    expect(
+      registry.issues.some((issue) =>
+        issue.message.includes("Duplicate reaction link"),
+      ),
+    ).toBe(true);
+    expect(
+      registry.issues.some((issue) =>
+        issue.message.includes("kebab-case"),
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    "DRAFT",
+    "REVIEW_REQUIRED",
+    "REJECTED",
+  ] as const)(
+    "accepts valid %s compounds without approval metadata",
+    (status) => {
+      const compound = {
+        ...validDraft,
+        id: `compound-${status.toLowerCase().replace("_", "-")}`,
+        status,
+      };
+
+      const registry = buildCompoundRegistry([compound]);
+
+      expect(registry.valid).toBe(true);
+      expect(
+        getApprovedCompoundById(registry, compound.id),
+      ).toBeUndefined();
+    },
+  );
+
+  it("requires approval metadata before accepting APPROVED status", () => {
+    const missingApprover = {
+      ...validApproved,
+      approvedBy: "",
+    };
+
+    const missingReference = {
+      ...validApproved,
+      approvalReference: "",
+    };
+
+    expect(
+      buildCompoundRegistry([missingApprover]).valid,
+    ).toBe(false);
+
+    expect(
+      buildCompoundRegistry([missingReference]).valid,
+    ).toBe(false);
+  });
+
+  it("does not expose approved compounds from a registry containing invalid entries", () => {
+    const registry = buildCompoundRegistry(
+      [validApproved, null] as unknown as readonly ChemicalCompound[],
+    );
+
+    expect(registry.valid).toBe(false);
+    expect(
+      getApprovedCompoundById(
+        registry,
+        validApproved.id,
+      ),
+    ).toBeUndefined();
+  });
+});
+
+describe("Compound relationships", () => {
+  const compound: ChemicalCompound = {
+    id: "compound-water",
+    name: "Water",
+    formula: "H2O",
+    status: "DRAFT",
+    source: {
+      reference: "https://example.org/water",
+    },
+    reactionIds: ["reaction-water-formation"],
+  };
+
+  it("derives element composition from the chemical formula", () => {
+    const result = getCompoundElementComposition(compound);
+
+    expect(result.valid).toBe(true);
+    expect(result.composition).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          symbol: "H",
+          atomicNumber: 1,
+          count: 2,
+        }),
+        expect.objectContaining({
+          symbol: "O",
+          atomicNumber: 8,
+          count: 1,
+        }),
+      ]),
+    );
+  });
+
+  it("returns only explicitly declared reaction identifiers", () => {
+    expect(getCompoundReactionIds(compound)).toEqual([
+      "reaction-water-formation",
+    ]);
+  });
+
+  it("does not infer reaction identifiers from a formula", () => {
+    const compoundWithoutLinks: ChemicalCompound = {
+      ...compound,
+      reactionIds: undefined,
+    };
+
+    expect(
+      getCompoundReactionIds(compoundWithoutLinks),
+    ).toEqual([]);
+  });
+
+  it("ignores malformed reaction identifiers at read time", () => {
+    const malformed = {
+      ...compound,
+      reactionIds: [
+        "reaction-valid",
+        "INVALID ID",
+        123,
+      ],
+    };
+
+    expect(
+      getCompoundReactionIds(
+        malformed as unknown as ChemicalCompound,
+      ),
+    ).toEqual(["reaction-valid"]);
+  });
+
+  it("returns an invalid formula result for malformed compound input", () => {
+    const malformed = {
+      id: "compound-invalid",
+      formula: 123,
+    };
+
+    const result = getCompoundElementComposition(
+      malformed as unknown as ChemicalCompound,
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.length).toBeGreaterThan(0);
   });
 });
