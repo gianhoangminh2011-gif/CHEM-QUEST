@@ -1,5 +1,14 @@
-import type { AnswerKeyIntakeRecord } from "../answer-keys/AnswerKeyIntake";
-import type { ChemistryQuestionSnapshot } from "../answer-keys/AnswerKeyRegistry";
+import type {
+  AnswerKeyIntakeRecord,
+} from "../answer-keys/AnswerKeyIntake";
+
+import {
+  resolvePinnedAnswerKey,
+} from "../answer-keys/AnswerKeyRegistry";
+
+import type {
+  ChemistryQuestionSnapshot,
+} from "../answer-keys/AnswerKeyRegistry";
 
 export type AnswerEvaluation = {
   questionId: string;
@@ -31,27 +40,26 @@ export function evaluateAnswer(
   }
 
   if (
-    answerKey.recordStatus !== "complete" ||
-    answerKey.verificationStatus !== "verified" ||
-    answerKey.approvalStatus !== "approved"
+    !answerKey ||
+    typeof answerKey.answerKeyId !== "string" ||
+    !Number.isInteger(answerKey.version) ||
+    answerKey.version <= 0
   ) {
+    throw new Error("Invalid answer key.");
+  }
+
+  const resolution = resolvePinnedAnswerKey(
+    [answerKey],
+    question,
+    answerKey.answerKeyId,
+    answerKey.version
+  );
+
+  if (resolution.status !== "eligible") {
     throw new Error("Answer key is not eligible for evaluation.");
   }
 
-  if (
-    answerKey.questionId !== question.questionId ||
-    answerKey.questionVersion !== question.questionVersion ||
-    answerKey.questionSnapshotFingerprint !== question.fingerprint
-  ) {
-    throw new Error("Answer key does not match the question snapshot.");
-  }
-
-  if (
-    typeof answerKey.correctChoiceId !== "string" ||
-    !question.choiceIds.includes(answerKey.correctChoiceId)
-  ) {
-    throw new Error("Answer key choice does not exist in the question.");
-  }
+  const eligibleKey = resolution.record;
 
   const isAnswered =
     selectedAnswer !== null &&
@@ -62,9 +70,9 @@ export function evaluateAnswer(
     selectedAnswer,
     isCorrect:
       isAnswered &&
-      selectedAnswer.trim() === answerKey.correctChoiceId,
+      selectedAnswer.trim() === eligibleKey.correctChoiceId,
     isAnswered,
-    answerKeyId: answerKey.answerKeyId,
-    answerKeyVersion: answerKey.version,
+    answerKeyId: eligibleKey.answerKeyId,
+    answerKeyVersion: eligibleKey.version,
   };
 }
