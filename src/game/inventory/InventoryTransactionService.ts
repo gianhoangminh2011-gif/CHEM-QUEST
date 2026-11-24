@@ -60,6 +60,9 @@ type StoredTransaction = {
   fingerprint: string;
 };
 
+const SYSTEM_WORLD_COLLECTION = "system-world-collection";
+const SYSTEM_INVENTORY_REMOVE = "system-inventory-remove";
+
 function freezeInventory(
   resources: Readonly<Record<string, number>>,
 ): Readonly<Record<string, number>> {
@@ -118,6 +121,72 @@ function fingerprintReaction(
     outputs: reaction.outputs,
     expectedRevision,
   });
+}
+
+function fingerprintSystemChange(
+  operationId: string,
+  expectedRevision: number,
+  inventoryAfter: Readonly<Record<string, number>>,
+): string {
+  return JSON.stringify({
+    operationId,
+    expectedRevision,
+    inventoryAfter: Object.fromEntries(
+      Object.entries(inventoryAfter).sort(([a], [b]) =>
+        a.localeCompare(b),
+      ),
+    ),
+  });
+}
+
+function isValidSystemTransition(
+  operationId: string,
+  inventoryBefore: Readonly<Record<string, number>>,
+  inventoryAfter: Readonly<Record<string, number>>,
+): boolean {
+  if (!validInventory(inventoryBefore) || !validInventory(inventoryAfter)) {
+    return false;
+  }
+
+  const keys = new Set([
+    ...Object.keys(inventoryBefore),
+    ...Object.keys(inventoryAfter),
+  ]);
+
+  const changed: Array<{
+    resourceId: string;
+    before: number;
+    after: number;
+  }> = [];
+
+  for (const resourceId of keys) {
+    const before = inventoryBefore[resourceId] ?? 0;
+    const after = inventoryAfter[resourceId] ?? 0;
+
+    if (before !== after) {
+      changed.push({ resourceId, before, after });
+    }
+  }
+
+  if (changed.length !== 1) return false;
+
+  const change = changed[0];
+
+  if (operationId === SYSTEM_WORLD_COLLECTION) {
+    return (
+      change.after === change.before + 1 &&
+      Number.isSafeInteger(change.after)
+    );
+  }
+
+  if (operationId === SYSTEM_INVENTORY_REMOVE) {
+    return (
+      change.before > 0 &&
+      change.after === change.before - 1
+    );
+  }
+
+  return false;
 }
 
 function failure(
@@ -231,7 +300,6 @@ export class InventoryTransactionService {
     return stored?.record ?? null;
   }
 
-  // Returns a read-only snapshot of the durable transaction journal.
   getTransactions(): readonly InventoryTransactionRecord[] {
     return Object.freeze(
       [...this.transactions.values()].map((stored) => stored.record),
@@ -282,16 +350,37 @@ export class InventoryTransactionService {
 
       changed = true;
 
-      const isSystemTransaction =
-        record.reactionId.startsWith("system-");
+      const isAllowedSystemOperation =
+        record.reactionId === SYSTEM_WORLD_COLLECTION ||
+        record.reactionId === SYSTEM_INVENTORY_REMOVE;
+
+      let expectedFingerprint = "";
+
+      try {
+        if (isAllowedSystemOperation) {
+          expectedFingerprint = fingerprintSystemChange(
+            record.reactionId,
+            record.expectedRevision,
+            record.inventoryAfter,
+          );
+        }
+      } catch {
+        expectedFingerprint = "";
+      }
 
       const canCompleteSystemTransaction =
-        isSystemTransaction &&
+        isAllowedSystemOperation &&
+        stored.fingerprint === expectedFingerprint &&
         recoveredRevision === record.expectedRevision &&
         recoveredRevision < Number.MAX_SAFE_INTEGER &&
         sameInventory(
           recoveredInventory.resources,
           record.inventoryBefore,
+        ) &&
+        isValidSystemTransition(
+          record.reactionId,
+          record.inventoryBefore,
+          record.inventoryAfter,
         );
 
       if (canCompleteSystemTransaction) {
@@ -446,7 +535,8 @@ export class InventoryTransactionService {
 
     if (
       !validTransactionId(operationId) ||
-      !operationId.startsWith("system-")
+      (operationId !== SYSTEM_WORLD_COLLECTION &&
+        operationId !== SYSTEM_INVENTORY_REMOVE)
     ) {
       return failure("INVALID_TRANSACTION_ID", "Invalid system operation ID.");
     }
@@ -460,15 +550,11 @@ export class InventoryTransactionService {
     }
 
     const normalizedAfter = freezeInventory(nextInventory.resources);
-    const fingerprint = JSON.stringify({
+    const fingerprint = fingerprintSystemChange(
       operationId,
       expectedRevision,
-      inventoryAfter: Object.fromEntries(
-        Object.entries(normalizedAfter).sort(([a], [b]) =>
-          a.localeCompare(b),
-        ),
-      ),
-    });
+      normalizedAfter,
+    );
 
     const existing = this.transactions.get(transactionId);
 
@@ -506,12 +592,21 @@ export class InventoryTransactionService {
       return failure("REVISION_OVERFLOW", "Revision overflow.");
     }
 
+    const before = freezeInventory(this.inventory.resources);
+
+    if (!isValidSystemTransition(operationId, before, normalizedAfter)) {
+      return failure(
+        "INVALID_INVENTORY",
+        "System inventory change must modify exactly one resource by one unit.",
+      );
+    }
+
     const record: InventoryTransactionRecord = Object.freeze({
       transactionId,
       reactionId: operationId,
       expectedRevision,
       status: "PREPARED",
-      inventoryBefore: freezeInventory(this.inventory.resources),
+      inventoryBefore: before,
       inventoryAfter: normalizedAfter,
     });
 
