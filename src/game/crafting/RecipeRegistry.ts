@@ -47,13 +47,16 @@ export function createRecipeRegistry(
     );
   }
 
+  // Preserve the declared recipe type after the runtime array check.
+  const typedRecipes: readonly CraftingRecipe[] = recipes;
+
   // A null-prototype object safely supports IDs such as "__proto__".
   const registry = Object.create(null) as Record<
     string,
     CraftingRecipe
   >;
 
-  for (const recipe of recipes) {
+  for (const recipe of typedRecipes) {
     const validationError = validateRecipe(recipe);
 
     if (validationError !== null) {
