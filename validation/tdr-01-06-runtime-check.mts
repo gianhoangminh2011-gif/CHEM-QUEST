@@ -6,7 +6,7 @@ import {
   getQdaFieldInventory,
   inspectQdaCandidateFields,
   isQdaFieldName,
-} from "../src/chemistry/questions/QdaCoreDataContract";
+} from "../src/chemistry/questions/QdaCoreDataContract.ts";
 
 let checks = 0;
 
