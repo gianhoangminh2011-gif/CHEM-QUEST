@@ -1,4 +1,3 @@
-
 import { parseChemicalFormula } from "../elements/FormulaCompound";
 
 export type EducationalReactionStatus =
@@ -447,6 +446,15 @@ function validateAtomBalance(
   ];
 }
 
+/**
+ * Checks evidence claim-by-claim.
+ *
+ * A claim is supported only when at least one individually valid
+ * source record declares that claim.
+ *
+ * This validates source metadata and attribution structure.
+ * It does not independently prove that the source content is scientifically correct.
+ */
 function validateClaimEvidence(
   reaction: Record<string, unknown>,
   reactionId: string,
@@ -455,17 +463,11 @@ function validateClaimEvidence(
     return [];
   }
 
-  const supportedClaims = new Set<string>();
-
-  for (const source of reaction.sources) {
-    if (isRecord(source) && Array.isArray(source.supports)) {
-      for (const claim of source.supports) {
-        if (typeof claim === "string") {
-          supportedClaims.add(claim);
-        }
-      }
-    }
-  }
+  const eligibleSources = reaction.sources.filter(
+    (source): source is Record<string, unknown> =>
+      isRecord(source) &&
+      validateSource(source, reactionId).length === 0,
+  );
 
   const requiredClaims: EducationalReactionClaim[] = [
     "REACTANTS_PRODUCTS",
@@ -480,21 +482,57 @@ function validateClaimEvidence(
     requiredClaims.push("CONDITIONS");
   }
 
-  const missing = requiredClaims.filter(
-    (claim) => !supportedClaims.has(claim),
-  );
+  const issues: EducationalReactionIssue[] = [];
 
-  if (missing.length === 0) {
-    return [];
+  for (const claim of requiredClaims) {
+    const matchingSources = eligibleSources.filter(
+      (source) =>
+        Array.isArray(source.supports) &&
+        source.supports.includes(claim),
+    );
+
+    if (matchingSources.length === 0) {
+      issues.push(
+        createIssue(
+          "INVALID_SOURCE",
+          `Missing source evidence for ${claim}. Add a valid source with a specific locator that explicitly supports this claim.`,
+          reactionId,
+        ),
+      );
+    }
   }
 
-  return [
-    createIssue(
-      "INVALID_SOURCE",
-      `No source evidence recorded for: ${missing.join(", ")}.`,
-      reactionId,
-    ),
-  ];
+  for (const source of eligibleSources) {
+    const supports = source.supports as readonly string[];
+
+    if (
+      reaction.classification === undefined &&
+      supports.includes("CLASSIFICATION")
+    ) {
+      issues.push(
+        createIssue(
+          "INVALID_SOURCE",
+          "Source claims CLASSIFICATION evidence, but the reaction has no classification field.",
+          reactionId,
+        ),
+      );
+    }
+
+    if (
+      reaction.conditions === undefined &&
+      supports.includes("CONDITIONS")
+    ) {
+      issues.push(
+        createIssue(
+          "INVALID_SOURCE",
+          "Source claims CONDITIONS evidence, but the reaction has no conditions field.",
+          reactionId,
+        ),
+      );
+    }
+  }
+
+  return issues;
 }
 
 function validateReaction(
@@ -746,8 +784,6 @@ export function buildEducationalReactionRegistry(
 
   const valid = frozenIssues.length === 0;
 
-  // Only expose reactions when the entire registry passes validation.
-  // This prevents malformed or partially valid entries from reaching consumers.
   const reactions = valid
     ? entries
         .filter(
