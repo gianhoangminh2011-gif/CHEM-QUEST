@@ -16,6 +16,7 @@ import type { ReactionDefinition } from "../chemistry/ReactionEngine";
 export type CraftingTransactionError =
   | "UNKNOWN_RECIPE"
   | "INVALID_RECIPE"
+  | "RECIPE_NOT_APPROVED"
   | "UNSUPPORTED_ONE_SHOT"
   | "INVALID_RESOURCE_ID"
   | InventoryTransactionErrorCode;
@@ -83,6 +84,15 @@ export class CraftingTransactionAdapter {
         success: false,
         error: "INVALID_RECIPE",
         message: validationError,
+      };
+    }
+
+    // Never allow unapproved recipes to reach inventory transactions.
+    if (recipe.status !== "APPROVED") {
+      return {
+        success: false,
+        error: "RECIPE_NOT_APPROVED",
+        message: `Recipe "${recipe.id}" is not approved for crafting.`,
       };
     }
 
