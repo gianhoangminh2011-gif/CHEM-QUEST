@@ -22,7 +22,7 @@ check("TDR-01: exactly 20 QDA fields", () => {
   assert.equal(new Set(QDA_FIELD_NAMES).size, 20);
 });
 
-// TDR-02: Grade Level is the fourth field
+// TDR-02: Grade Level is field 4
 check("TDR-02: Grade Level is field 4", () => {
   assert.equal(QDA_FIELD_NAMES[3], "Grade Level");
 });
@@ -35,7 +35,7 @@ check("TDR-03: exact field-name matching", () => {
   assert.equal(isQdaFieldName("Unknown Field"), false);
 });
 
-// TDR-04: Inventory is available and stable
+// TDR-04: Inventory matches canonical list
 check("TDR-04: inventory matches canonical field list", () => {
   const inventory = getQdaFieldInventory();
 
@@ -43,25 +43,28 @@ check("TDR-04: inventory matches canonical field list", () => {
   assert.equal(inventory.length, 20);
 });
 
-// TDR-05: Valid candidate field inspection
+// TDR-05: Valid candidate fields accepted
 check("TDR-05: valid candidate fields are accepted", () => {
   const result = inspectQdaCandidateFields([
-    "Question ID",
-    "Template ID",
-    "Grade Level",
+    { fieldName: "Question ID", value: "Q-001" },
+    { fieldName: "Template ID", value: "TPL-001" },
+    { fieldName: "Grade Level", value: 10 },
   ]);
 
   assert.equal(result.valid, true);
+  assert.equal(result.issues.length, 0);
+  assert.equal(result.entries.length, 3);
 });
 
-// TDR-06: Unknown candidate field is rejected
+// TDR-06: Unknown candidate fields rejected
 check("TDR-06: unknown candidate fields are rejected", () => {
   const result = inspectQdaCandidateFields([
-    "Question ID",
-    "Unknown Field",
+    { fieldName: "Question ID", value: "Q-001" },
+    { fieldName: "Unknown Field", value: "x" },
   ]);
 
   assert.equal(result.valid, false);
+  assert.equal(result.issues[0]?.code, "UNKNOWN_FIELD");
 });
 
 console.log(`\nTDR-01..06 runtime checks: ${checks}/${checks} PASS`);
