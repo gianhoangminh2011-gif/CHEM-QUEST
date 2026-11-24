@@ -811,14 +811,24 @@ export function getApprovedEducationalReactionById(
 ): EducationalReaction | undefined {
   if (
     !registry ||
-    !registry.valid ||
+    registry.valid !== true ||
     !Array.isArray(registry.reactions) ||
     typeof reactionId !== "string"
   ) {
     return undefined;
   }
 
-  return registry.reactions.find(
+  // Revalidate at the trust boundary. Never trust a caller-controlled
+  // valid flag without checking the registry contents again.
+  const validated = buildEducationalReactionRegistry(
+    registry.reactions,
+  );
+
+  if (!validated.valid || validated.issues.length > 0) {
+    return undefined;
+  }
+
+  return validated.reactions.find(
     (reaction) =>
       reaction.id === reactionId &&
       reaction.status === "APPROVED",

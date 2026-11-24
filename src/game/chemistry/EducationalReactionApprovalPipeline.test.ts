@@ -348,6 +348,28 @@ describe("Educational reaction approval pipeline", () => {
     expect(getApprovedEducationalReactions(registry)).toHaveLength(0);
   });
 
+  it("rejects a forged registry with an invalid approved reaction", () => {
+    const forgedReaction = {
+      ...createReaction("REVIEW_REQUIRED"),
+      status: "APPROVED" as const,
+      approvedBy: "reviewer",
+      approvalReference: "APPROVAL-001",
+      products: [{ formula: "H2O", coefficient: 1 }],
+    };
+
+    const forgedRegistry = {
+      reactions: [forgedReaction],
+      issues: [],
+      valid: true,
+    } as unknown as ReturnType<
+      typeof buildEducationalReactionRegistry
+    >;
+
+    expect(
+      getApprovedEducationalReactions(forgedRegistry),
+    ).toHaveLength(0);
+  });
+
   it("freezes the decision record", () => {
     const result = transitionEducationalReaction(
       createReaction("DRAFT"),
