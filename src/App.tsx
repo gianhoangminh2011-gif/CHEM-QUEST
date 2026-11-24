@@ -25,6 +25,12 @@ import { InventoryTransactionService } from './game/inventory/InventoryTransacti
 import { loadRuntimeInventorySnapshot } from './game/inventory/RuntimeInventorySaveService';
 import { CraftingTransactionAdapter } from './game/crafting/CraftingTransactionAdapter';
 import {
+  REACTION_REGISTRY_ENTRIES,
+} from './game/chemistry/ReactionRegistry';
+import {
+  ReactionExecutionService,
+} from './game/chemistry/ReactionExecutionService';
+import {
   isAnalysed,
   type AnalysisResult,
   type ChemistryBridge,
@@ -32,6 +38,10 @@ import {
 } from './game/chemistry/ChemistrySystem';
 
 type Panel = 'quest' | 'codex' | 'periodic-table' | 'bag' | 'lab';
+
+const approvedReactions = REACTION_REGISTRY_ENTRIES
+  .filter((entry) => entry.approvalStatus === 'APPROVED')
+  .map((entry) => entry.reaction);
 
 function App() {
   const [activePanel, setActivePanel] = useState<Panel>('quest');
@@ -58,6 +68,9 @@ function App() {
 
   const craftingTransactions =
     useRef<CraftingTransactionAdapter | null>(null);
+
+  const reactionExecution =
+    useRef<ReactionExecutionService | null>(null);
 
   const inventoryRemovalSequence = useRef(0);
 
@@ -253,6 +266,37 @@ function App() {
     [],
   );
 
+  const handleReactionExecution = useCallback(
+    (reactionId: string, transactionId: string) => {
+      const service = inventoryTransactions.current;
+      const executor = reactionExecution.current;
+
+      if (
+        !service ||
+        !executor ||
+        !hasHydratedRuntimeInventory
+      ) {
+        return {
+          success: false as const,
+          error: 'INVALID_REQUEST' as const,
+          message: 'Reaction inventory service is not initialized.',
+        };
+      }
+
+      const result = executor.execute(
+        reactionId,
+        transactionId,
+      );
+
+      if (result.success) {
+        setRuntimeInventory(service.getSnapshot().inventory);
+      }
+
+      return result;
+    },
+    [hasHydratedRuntimeInventory],
+  );
+
   useEffect(() => {
     if (!hasReceivedGameplayState || hasHydratedRuntimeInventory) {
       return;
@@ -279,6 +323,10 @@ function App() {
       inventoryTransactions.current = service;
       craftingTransactions.current =
         new CraftingTransactionAdapter(service);
+
+      // Reaction execution must use the same durable inventory service.
+      reactionExecution.current =
+        new ReactionExecutionService(service);
 
       const durableSnapshot = loadRuntimeInventorySnapshot();
 
@@ -713,6 +761,8 @@ function App() {
               researchSamples={researchSamples}
               onCraftingTransaction={handleCraftingTransaction}
               onRemoveResource={handleRemoveResource}
+              approvedReactions={approvedReactions}
+              onReactionExecution={handleReactionExecution}
             />
           )}
 
