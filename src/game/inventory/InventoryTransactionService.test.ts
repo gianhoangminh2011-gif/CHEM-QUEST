@@ -34,6 +34,18 @@ class MemoryStorage implements Storage {
   }
 }
 
+class ToggleFailStorage extends MemoryStorage {
+  failWrites = false;
+
+  override setItem(key: string, value: string): void {
+    if (this.failWrites) {
+      throw new Error("Simulated storage failure");
+    }
+
+    super.setItem(key, value);
+  }
+}
+
 function createInventory(
   resources: Record<string, number> = {},
 ): RuntimeInventoryState {
@@ -635,5 +647,83 @@ describe("InventoryTransactionService", () => {
       success: false,
       error: "TRANSACTION_ALREADY_ROLLED_BACK",
     });
+  });
+
+  it("does not mutate inventory or transaction state when commit persistence fails", () => {
+    const storage = new ToggleFailStorage();
+
+    const service = new InventoryTransactionService(
+      createInventory({ "crystal-water": 3 }),
+      0,
+      storage,
+    );
+
+    const prepared = service.prepare("tx-persistence-failure", reaction);
+
+    expect(prepared.success).toBe(true);
+    expect(service.getTransaction("tx-persistence-failure")?.status)
+      .toBe("PREPARED");
+
+    const beforeFailure = service.getSnapshot();
+
+    storage.failWrites = true;
+
+    const committed = service.commit("tx-persistence-failure");
+
+    expect(committed).toMatchObject({
+      success: false,
+      error: "PERSISTENCE_FAILED",
+    });
+
+    expect(service.getSnapshot()).toEqual(beforeFailure);
+
+    expect(service.getTransaction("tx-persistence-failure")?.status)
+      .toBe("PREPARED");
+  });
+
+  it("rejects system changes and reaction commits when revision overflows", () => {
+    const storage = new MemoryStorage();
+
+    const service = new InventoryTransactionService(
+      createInventory({ "crystal-water": 3 }),
+      Number.MAX_SAFE_INTEGER,
+      storage,
+    );
+
+    const before = service.getSnapshot();
+
+    const systemChange = service.applyInventoryChange(
+      "world-collect-overflow",
+      "system-world-collection",
+      createInventory({ "crystal-water": 4 }),
+      Number.MAX_SAFE_INTEGER,
+    );
+
+    expect(systemChange).toMatchObject({
+      success: false,
+      error: "REVISION_OVERFLOW",
+    });
+
+    expect(service.getSnapshot()).toEqual(before);
+
+    const prepared = service.prepare(
+      "tx-revision-overflow",
+      reaction,
+      Number.MAX_SAFE_INTEGER,
+    );
+
+    expect(prepared.success).toBe(true);
+
+    const committed = service.commit("tx-revision-overflow");
+
+    expect(committed).toMatchObject({
+      success: false,
+      error: "REVISION_OVERFLOW",
+    });
+
+    expect(service.getSnapshot()).toEqual(before);
+
+    expect(service.getTransaction("tx-revision-overflow")?.status)
+      .toBe("PREPARED");
   });
 });
