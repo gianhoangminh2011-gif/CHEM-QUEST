@@ -17,6 +17,10 @@ const validSource = {
   url: "https://example.org/chemistry",
   locator: "Section 1",
   accessedAt: "2026-11-24",
+  supports: [
+    "REACTANTS_PRODUCTS",
+    "STOICHIOMETRY",
+  ],
 };
 
 const validReaction: EducationalReaction = {
@@ -168,6 +172,26 @@ describe("Educational reaction registry", () => {
     expect(registry.issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ code: "DUPLICATE_ID" }),
+      ]),
+    );
+  });
+
+  it("does not expose reactions when the registry contains validation errors", () => {
+    const invalidReaction: EducationalReaction = {
+      ...validReaction,
+      products: [{ formula: "H2O", coefficient: 1 }],
+    };
+
+    const registry = buildEducationalReactionRegistry([
+      validReaction,
+      invalidReaction,
+    ]);
+
+    expect(registry.valid).toBe(false);
+    expect(registry.reactions).toHaveLength(0);
+    expect(registry.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "ATOM_IMBALANCE" }),
       ]),
     );
   });
