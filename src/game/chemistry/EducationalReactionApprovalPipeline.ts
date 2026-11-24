@@ -5,20 +5,18 @@ import {
 } from "./EducationalReaction";
 
 export type EducationalReactionDecision =
-  | {
-      type: "SUBMIT_FOR_REVIEW";
-    }
-  | {
+  | Readonly<{ type: "SUBMIT_FOR_REVIEW" }>
+  | Readonly<{
       type: "APPROVE";
       approvedBy: string;
       approvalReference: string;
-    }
-  | {
+    }>
+  | Readonly<{
       type: "REJECT";
       reviewedBy: string;
       reviewReference: string;
       reason: string;
-    };
+    }>;
 
 export type EducationalReactionDecisionRecord =
   | Readonly<{
@@ -66,21 +64,14 @@ export type EducationalReactionApprovalResult =
     }>;
 
 function isNonEmptyString(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.trim().length > 0
-  );
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function failure(
   error: EducationalReactionApprovalErrorCode,
   message: string,
 ): EducationalReactionApprovalResult {
-  return Object.freeze({
-    success: false,
-    error,
-    message,
-  });
+  return Object.freeze({ success: false, error, message });
 }
 
 function success(
@@ -94,27 +85,19 @@ function success(
   });
 }
 
-/**
- * Applies one explicit review decision.
- *
- * Allowed transitions:
- * DRAFT -> REVIEW_REQUIRED
- * REVIEW_REQUIRED -> APPROVED
- * REVIEW_REQUIRED -> REJECTED
- *
- * This function never approves a reaction automatically.
- */
 export function transitionEducationalReaction(
   reaction: EducationalReaction,
   decision: EducationalReactionDecision,
 ): EducationalReactionApprovalResult {
   if (
     !reaction ||
-    typeof reaction !== "object"
+    typeof reaction !== "object" ||
+    !decision ||
+    typeof decision !== "object"
   ) {
     return failure(
       "INVALID_REACTION",
-      "A valid educational reaction is required.",
+      "A valid reaction and decision are required.",
     );
   }
 
@@ -128,17 +111,6 @@ export function transitionEducationalReaction(
     return failure(
       "INVALID_REACTION",
       "Reaction data must pass registry validation before review.",
-    );
-  }
-
-  if (
-    !decision ||
-    typeof decision !== "object" ||
-    typeof decision.type !== "string"
-  ) {
-    return failure(
-      "INVALID_DECISION",
-      "A valid review decision is required.",
     );
   }
 
@@ -158,25 +130,22 @@ export function transitionEducationalReaction(
         status: "REVIEW_REQUIRED",
       };
 
-      const nextRegistry =
+      const registry =
         buildEducationalReactionRegistry([nextReaction]);
 
-      if (!nextRegistry.valid) {
+      if (!registry.valid) {
         return failure(
           "INVALID_REACTION",
           "Reaction failed validation after submission.",
         );
       }
 
-      return success(
-        nextRegistry.reactions[0],
-        {
-          reactionId: current.id,
-          action: "SUBMITTED_FOR_REVIEW",
-          fromStatus: "DRAFT",
-          toStatus: "REVIEW_REQUIRED",
-        },
-      );
+      return success(registry.reactions[0], {
+        reactionId: current.id,
+        action: "SUBMITTED_FOR_REVIEW",
+        fromStatus: "DRAFT",
+        toStatus: "REVIEW_REQUIRED",
+      });
     }
 
     case "APPROVE": {
@@ -208,27 +177,24 @@ export function transitionEducationalReaction(
         approvalReference: decision.approvalReference.trim(),
       };
 
-      const nextRegistry =
+      const registry =
         buildEducationalReactionRegistry([nextReaction]);
 
-      if (!nextRegistry.valid) {
+      if (!registry.valid) {
         return failure(
           "INVALID_REACTION",
           "Approved reaction failed registry validation.",
         );
       }
 
-      return success(
-        nextRegistry.reactions[0],
-        {
-          reactionId: current.id,
-          action: "APPROVED",
-          fromStatus: "REVIEW_REQUIRED",
-          toStatus: "APPROVED",
-          reviewer: decision.approvedBy.trim(),
-          reference: decision.approvalReference.trim(),
-        },
-      );
+      return success(registry.reactions[0], {
+        reactionId: current.id,
+        action: "APPROVED",
+        fromStatus: "REVIEW_REQUIRED",
+        toStatus: "APPROVED",
+        reviewer: decision.approvedBy.trim(),
+        reference: decision.approvalReference.trim(),
+      });
     }
 
     case "REJECT": {
@@ -265,28 +231,25 @@ export function transitionEducationalReaction(
         status: "REJECTED",
       };
 
-      const nextRegistry =
+      const registry =
         buildEducationalReactionRegistry([nextReaction]);
 
-      if (!nextRegistry.valid) {
+      if (!registry.valid) {
         return failure(
           "INVALID_REACTION",
           "Rejected reaction failed registry validation.",
         );
       }
 
-      return success(
-        nextRegistry.reactions[0],
-        {
-          reactionId: current.id,
-          action: "REJECTED",
-          fromStatus: "REVIEW_REQUIRED",
-          toStatus: "REJECTED",
-          reviewer: decision.reviewedBy.trim(),
-          reference: decision.reviewReference.trim(),
-          reason: decision.reason.trim(),
-        },
-      );
+      return success(registry.reactions[0], {
+        reactionId: current.id,
+        action: "REJECTED",
+        fromStatus: "REVIEW_REQUIRED",
+        toStatus: "REJECTED",
+        reviewer: decision.reviewedBy.trim(),
+        reference: decision.reviewReference.trim(),
+        reason: decision.reason.trim(),
+      });
     }
 
     default:
@@ -297,10 +260,6 @@ export function transitionEducationalReaction(
   }
 }
 
-/**
- * Returns only approved reactions from a valid registry.
- * DRAFT and REVIEW_REQUIRED candidates are never exposed here.
- */
 export function getApprovedEducationalReactions(
   registry: EducationalReactionRegistry,
 ): readonly EducationalReaction[] {
