@@ -1,3 +1,4 @@
+
 # CHEM QUEST
 
 *A Chemistry Learning Adventure*
@@ -60,7 +61,7 @@ Feature availability depends on the current implementation status.
 
 ## WP-FC-01 — Formula & Compound Foundation
 
-**Status:** Implementation completed; merge into `main` confirmed by the project owner.
+**Status:** COMPLETED — MERGED into `main`.
 
 This work package establishes the foundational domain layer for chemical formula parsing and compound records.
 
