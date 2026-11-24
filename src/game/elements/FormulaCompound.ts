@@ -1,3 +1,4 @@
+
 import { PERIODIC_TABLE_DATA } from "./PeriodicTableData";
 
 export type FormulaIssueCode =
@@ -300,6 +301,15 @@ function parseGroup(
 export function parseChemicalFormula(
   input: string,
 ): FormulaParseResult {
+  if (typeof input !== "string") {
+    return createParseResult("", [], [
+      createIssue(
+        "EMPTY_FORMULA",
+        "Chemical formula must be a string.",
+      ),
+    ]);
+  }
+
   const formula = input.trim();
 
   if (!formula) {
@@ -382,6 +392,15 @@ export type CompoundStatus =
   | "APPROVED"
   | "REJECTED";
 
+const VALID_COMPOUND_STATUSES: readonly CompoundStatus[] = [
+  "DRAFT",
+  "REVIEW_REQUIRED",
+  "APPROVED",
+  "REJECTED",
+];
+
+const COMPOUND_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
 export interface CompoundSource {
   reference: string;
   publisher?: string;
@@ -397,6 +416,7 @@ export interface ChemicalCompound {
   description?: string;
   approvedBy?: string;
   approvalReference?: string;
+  reactionIds?: readonly string[];
 }
 
 export interface CompoundRegistryIssue {
@@ -410,60 +430,241 @@ export interface CompoundRegistry {
   valid: boolean;
 }
 
-function validateCompound(
-  compound: ChemicalCompound,
-): CompoundRegistryIssue[] {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function createCompoundIssue(
+  message: string,
+  compoundId?: string,
+): CompoundRegistryIssue {
+  return Object.freeze({ message, compoundId });
+}
+
+function validateCompound(value: unknown): CompoundRegistryIssue[] {
+  if (!isRecord(value)) {
+    return [createCompoundIssue("Compound entry must be an object.")];
+  }
+
   const issues: CompoundRegistryIssue[] = [];
+  const compoundId =
+    typeof value.id === "string" ? value.id : undefined;
 
-  if (!compound.id.trim()) {
-    issues.push({
-      compoundId: compound.id,
-      message: "Compound ID cannot be empty.",
-    });
+  if (
+    !isNonEmptyString(value.id) ||
+    !COMPOUND_ID_PATTERN.test(value.id)
+  ) {
+    issues.push(
+      createCompoundIssue(
+        "Compound ID must use lowercase kebab-case.",
+        compoundId,
+      ),
+    );
   }
 
-  if (!compound.name.trim()) {
-    issues.push({
-      compoundId: compound.id,
-      message: "Compound name cannot be empty.",
-    });
+  if (!isNonEmptyString(value.name)) {
+    issues.push(
+      createCompoundIssue("Compound name is required.", compoundId),
+    );
   }
 
-  if (!compound.source.reference.trim()) {
-    issues.push({
-      compoundId: compound.id,
-      message: "A source reference is required.",
-    });
+  if (!isNonEmptyString(value.formula)) {
+    issues.push(
+      createCompoundIssue("Compound formula is required.", compoundId),
+    );
+  } else {
+    const parsed = parseChemicalFormula(value.formula);
+
+    if (!parsed.valid) {
+      issues.push(
+        createCompoundIssue(
+          `Invalid formula: ${parsed.issues
+            .map((issue) => issue.message)
+            .join("; ")}`,
+          compoundId,
+        ),
+      );
+    }
   }
 
-  const parsed = parseChemicalFormula(compound.formula);
-
-  if (!parsed.valid) {
-    issues.push({
-      compoundId: compound.id,
-      message: `Invalid formula: ${parsed.issues
-        .map((issue) => issue.message)
-        .join("; ")}`,
-    });
+  if (
+    typeof value.status !== "string" ||
+    !VALID_COMPOUND_STATUSES.includes(
+      value.status as CompoundStatus,
+    )
+  ) {
+    issues.push(
+      createCompoundIssue("Compound status is invalid.", compoundId),
+    );
   }
 
-  if (compound.status === "APPROVED") {
-    if (!compound.approvedBy?.trim()) {
-      issues.push({
-        compoundId: compound.id,
-        message: "Approved compounds require an approver.",
-      });
+  if (!isRecord(value.source)) {
+    issues.push(
+      createCompoundIssue(
+        "Compound source must be an object.",
+        compoundId,
+      ),
+    );
+  } else {
+    if (!isNonEmptyString(value.source.reference)) {
+      issues.push(
+        createCompoundIssue(
+          "A source reference is required.",
+          compoundId,
+        ),
+      );
     }
 
-    if (!compound.approvalReference?.trim()) {
-      issues.push({
-        compoundId: compound.id,
-        message: "Approved compounds require an approval reference.",
-      });
+    if (
+      value.source.publisher !== undefined &&
+      !isNonEmptyString(value.source.publisher)
+    ) {
+      issues.push(
+        createCompoundIssue(
+          "Source publisher must be non-empty when provided.",
+          compoundId,
+        ),
+      );
+    }
+
+    if (
+      value.source.accessedAt !== undefined &&
+      !isNonEmptyString(value.source.accessedAt)
+    ) {
+      issues.push(
+        createCompoundIssue(
+          "Source accessedAt must be non-empty when provided.",
+          compoundId,
+        ),
+      );
+    }
+  }
+
+  if (
+    value.description !== undefined &&
+    typeof value.description !== "string"
+  ) {
+    issues.push(
+      createCompoundIssue(
+        "Description must be a string when provided.",
+        compoundId,
+      ),
+    );
+  }
+
+  if (
+    value.approvedBy !== undefined &&
+    typeof value.approvedBy !== "string"
+  ) {
+    issues.push(
+      createCompoundIssue(
+        "approvedBy must be a string when provided.",
+        compoundId,
+      ),
+    );
+  }
+
+  if (
+    value.approvalReference !== undefined &&
+    typeof value.approvalReference !== "string"
+  ) {
+    issues.push(
+      createCompoundIssue(
+        "approvalReference must be a string when provided.",
+        compoundId,
+      ),
+    );
+  }
+
+  if (value.status === "APPROVED") {
+    if (!isNonEmptyString(value.approvedBy)) {
+      issues.push(
+        createCompoundIssue(
+          "Approved compounds require an approver.",
+          compoundId,
+        ),
+      );
+    }
+
+    if (!isNonEmptyString(value.approvalReference)) {
+      issues.push(
+        createCompoundIssue(
+          "Approved compounds require an approval reference.",
+          compoundId,
+        ),
+      );
+    }
+  }
+
+  if (value.reactionIds !== undefined) {
+    if (!Array.isArray(value.reactionIds)) {
+      issues.push(
+        createCompoundIssue(
+          "reactionIds must be an array when provided.",
+          compoundId,
+        ),
+      );
+    } else {
+      const seenReactionIds = new Set<string>();
+
+      for (const reactionId of value.reactionIds) {
+        if (
+          !isNonEmptyString(reactionId) ||
+          !COMPOUND_ID_PATTERN.test(reactionId)
+        ) {
+          issues.push(
+            createCompoundIssue(
+              "Reaction links must use lowercase kebab-case identifiers.",
+              compoundId,
+            ),
+          );
+          continue;
+        }
+
+        if (seenReactionIds.has(reactionId)) {
+          issues.push(
+            createCompoundIssue(
+              `Duplicate reaction link "${reactionId}".`,
+              compoundId,
+            ),
+          );
+        }
+
+        seenReactionIds.add(reactionId);
+      }
     }
   }
 
   return issues;
+}
+
+function freezeCompound(value: unknown): ChemicalCompound | undefined {
+  if (
+    !isRecord(value) ||
+    !isRecord(value.source) ||
+    typeof value.id !== "string" ||
+    typeof value.name !== "string" ||
+    typeof value.formula !== "string" ||
+    typeof value.status !== "string"
+  ) {
+    return undefined;
+  }
+
+  const source = Object.freeze({ ...value.source });
+
+  const reactionIds = Array.isArray(value.reactionIds)
+    ? Object.freeze([...value.reactionIds])
+    : undefined;
+
+  return Object.freeze({
+    ...value,
+    source,
+    ...(reactionIds ? { reactionIds } : {}),
+  }) as unknown as ChemicalCompound;
 }
 
 export function buildCompoundRegistry(
@@ -472,42 +673,92 @@ export function buildCompoundRegistry(
   const issues: CompoundRegistryIssue[] = [];
   const seenIds = new Set<string>();
 
-  for (const compound of compounds) {
-    if (seenIds.has(compound.id)) {
-      issues.push({
-        compoundId: compound.id,
-        message: "Duplicate compound ID.",
-      });
-    }
-
-    seenIds.add(compound.id);
-
-    issues.push(...validateCompound(compound));
+  if (!Array.isArray(compounds)) {
+    return Object.freeze({
+      compounds: Object.freeze([]),
+      issues: Object.freeze([
+        createCompoundIssue("Registry entries must be an array."),
+      ]),
+      valid: false,
+    });
   }
 
-  const frozenCompounds = compounds.map((compound) =>
-    Object.freeze({
-      ...compound,
-      source: Object.freeze({ ...compound.source }),
-    }),
-  );
+  for (const compound of compounds) {
+    issues.push(...validateCompound(compound));
 
-  const frozenIssues = issues.map((issue) =>
-    Object.freeze({ ...issue }),
+    if (isRecord(compound) && typeof compound.id === "string") {
+      if (seenIds.has(compound.id)) {
+        issues.push(
+          createCompoundIssue(
+            `Duplicate compound ID "${compound.id}".`,
+            compound.id,
+          ),
+        );
+      }
+
+      seenIds.add(compound.id);
+    }
+  }
+
+  const frozenCompounds = compounds
+    .map(freezeCompound)
+    .filter(
+      (compound): compound is ChemicalCompound =>
+        compound !== undefined,
+    );
+
+  const frozenIssues = Object.freeze(
+    issues.map((issue) => Object.freeze({ ...issue })),
   );
 
   return Object.freeze({
     compounds: Object.freeze(frozenCompounds),
-    issues: Object.freeze(frozenIssues),
+    issues: frozenIssues,
     valid: frozenIssues.length === 0,
   });
+}
+
+export function getCompoundElementComposition(
+  compound: ChemicalCompound,
+): FormulaParseResult {
+  if (!compound || typeof compound.formula !== "string") {
+    return createParseResult("", [], [
+      createIssue(
+        "EMPTY_FORMULA",
+        "A valid compound formula is required.",
+      ),
+    ]);
+  }
+
+  return parseChemicalFormula(compound.formula);
+}
+
+export function getCompoundReactionIds(
+  compound: ChemicalCompound,
+): readonly string[] {
+  if (!compound || !Array.isArray(compound.reactionIds)) {
+    return Object.freeze([]);
+  }
+
+  return Object.freeze(
+    compound.reactionIds.filter(
+      (id): id is string =>
+        typeof id === "string" &&
+        COMPOUND_ID_PATTERN.test(id),
+    ),
+  );
 }
 
 export function getApprovedCompoundById(
   registry: CompoundRegistry,
   compoundId: string,
 ): ChemicalCompound | undefined {
-  if (!registry.valid) {
+  if (
+    !registry ||
+    !registry.valid ||
+    !Array.isArray(registry.compounds) ||
+    typeof compoundId !== "string"
+  ) {
     return undefined;
   }
 
