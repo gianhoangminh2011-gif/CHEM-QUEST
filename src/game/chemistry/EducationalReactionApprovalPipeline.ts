@@ -271,8 +271,17 @@ export function getApprovedEducationalReactions(
     return Object.freeze([]);
   }
 
+  // Revalidate instead of trusting a caller-controlled valid flag.
+  const validated = buildEducationalReactionRegistry(
+    registry.reactions,
+  );
+
+  if (!validated.valid || validated.issues.length > 0) {
+    return Object.freeze([]);
+  }
+
   return Object.freeze(
-    registry.reactions.filter(
+    validated.reactions.filter(
       (reaction) => reaction.status === "APPROVED",
     ),
   );
