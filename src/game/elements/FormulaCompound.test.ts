@@ -1,4 +1,3 @@
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -45,11 +44,26 @@ describe("parseChemicalFormula", () => {
     "()",
     "H2O!",
     "2H2O",
+    "H2Xx",
+    "H2(",
   ])("rejects invalid formula %s", (formula) => {
     const result = parseChemicalFormula(formula);
 
     expect(result.valid).toBe(false);
     expect(result.issues.length).toBeGreaterThan(0);
+    expect(result.composition).toHaveLength(0);
+  });
+
+  it.each([
+    "H2O)",
+    "H2O!",
+    "H2Xx",
+    "H2(",
+  ])("returns empty composition for invalid formula: %s", (formula) => {
+    const result = parseChemicalFormula(formula);
+
+    expect(result.valid).toBe(false);
+    expect(result.composition).toEqual([]);
   });
 
   it("rejects unsafe integer counts", () => {
@@ -142,6 +156,7 @@ describe("parseChemicalFormula", () => {
     expect(result.valid).toBe(false);
     expect(Object.isFrozen(result.issues)).toBe(true);
     expect(Object.isFrozen(result.issues[0])).toBe(true);
+    expect(result.composition).toHaveLength(0);
   });
 
   it("includes atomic numbers from periodic table data", () => {
@@ -583,5 +598,6 @@ describe("Compound relationships", () => {
 
     expect(result.valid).toBe(false);
     expect(result.issues.length).toBeGreaterThan(0);
+    expect(result.composition).toHaveLength(0);
   });
 });
