@@ -33,9 +33,23 @@ export interface EducationalReaction {
   approvalReference?: string;
 }
 
+export type EducationalReactionIssueCode =
+  | "INVALID_ENTRY"
+  | "INVALID_ID"
+  | "DUPLICATE_ID"
+  | "INVALID_NAME"
+  | "INVALID_STATUS"
+  | "INVALID_SPECIES"
+  | "INVALID_FORMULA"
+  | "INVALID_COEFFICIENT"
+  | "DUPLICATE_SPECIES"
+  | "ATOM_IMBALANCE"
+  | "INVALID_SOURCE"
+  | "MISSING_APPROVAL_METADATA";
+
 export interface EducationalReactionIssue {
+  code: EducationalReactionIssueCode;
   reactionId?: string;
-  code: string;
   message: string;
 }
 
@@ -52,51 +66,137 @@ const VALID_STATUSES: readonly EducationalReactionStatus[] = [
   "REJECTED",
 ];
 
+const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function issue(
+  code: EducationalReactionIssueCode,
+  message: string,
+  reactionId?: string,
+): EducationalReactionIssue {
+  return {
+    code,
+    message,
+    reactionId,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function createIssue(
-  code: string,
-  message: string,
-  reactionId?: string,
-): EducationalReactionIssue {
-  return { code, message, reactionId };
-}
-
-function validateSpecies(
-  species: readonly EducationalReactionSpecies[],
+function validateSource(
+  source: unknown,
   reactionId: string,
-  side: string,
 ): EducationalReactionIssue[] {
-  const issues: EducationalReactionIssue[] = [];
-  const seenFormulas = new Set<string>();
-
-  if (!Array.isArray(species) || species.length === 0) {
+  if (!isRecord(source)) {
     return [
-      createIssue(
-        "INVALID_SPECIES",
-        `${side} must contain at least one species.`,
+      issue(
+        "INVALID_SOURCE",
+        "Source must be an object.",
         reactionId,
       ),
     ];
   }
 
-  for (const item of species) {
-    if (!item || typeof item !== "object") {
+  const issues: EducationalReactionIssue[] = [];
+
+  if (!isNonEmptyString(source.title)) {
+    issues.push(
+      issue("INVALID_SOURCE", "Source title is required.", reactionId),
+    );
+  }
+
+  if (!isNonEmptyString(source.publisher)) {
+    issues.push(
+      issue("INVALID_SOURCE", "Source publisher is required.", reactionId),
+    );
+  }
+
+  if (!isNonEmptyString(source.locator)) {
+    issues.push(
+      issue("INVALID_SOURCE", "Source locator is required.", reactionId),
+    );
+  }
+
+  if (!isNonEmptyString(source.url)) {
+    issues.push(
+      issue("INVALID_SOURCE", "Source URL is required.", reactionId),
+    );
+  } else {
+    try {
+      const parsedUrl = new URL(source.url);
+
+      if (parsedUrl.protocol !== "https:") {
+        issues.push(
+          issue(
+            "INVALID_SOURCE",
+            "Source URL must use HTTPS.",
+            reactionId,
+          ),
+        );
+      }
+    } catch {
       issues.push(
-        createIssue(
+        issue("INVALID_SOURCE", "Source URL is invalid.", reactionId),
+      );
+    }
+  }
+
+  if (
+    !isNonEmptyString(source.accessedAt) ||
+    !DATE_PATTERN.test(source.accessedAt) ||
+    Number.isNaN(Date.parse(`${source.accessedAt}T00:00:00Z`))
+  ) {
+    issues.push(
+      issue(
+        "INVALID_SOURCE",
+        "Source accessedAt must use YYYY-MM-DD format.",
+        reactionId,
+      ),
+    );
+  }
+
+  return issues;
+}
+
+function validateSpecies(
+  species: unknown,
+  side: string,
+  reactionId: string,
+): EducationalReactionIssue[] {
+  if (!Array.isArray(species) || species.length === 0) {
+    return [
+      issue(
+        "INVALID_SPECIES",
+        `${side} must contain at least one chemical species.`,
+        reactionId,
+      ),
+    ];
+  }
+
+  const issues: EducationalReactionIssue[] = [];
+  const seenFormulas = new Set<string>();
+
+  for (const entry of species) {
+    if (!isRecord(entry)) {
+      issues.push(
+        issue(
           "INVALID_SPECIES",
-          `${side} contains an invalid species.`,
+          `${side} contains an invalid species entry.`,
           reactionId,
         ),
       );
       continue;
     }
 
-    if (!isNonEmptyString(item.formula)) {
+    if (!isNonEmptyString(entry.formula)) {
       issues.push(
-        createIssue(
+        issue(
           "INVALID_FORMULA",
           `${side} contains an empty formula.`,
           reactionId,
@@ -105,59 +205,64 @@ function validateSpecies(
       continue;
     }
 
-    const parsed = parseChemicalFormula(item.formula);
+    const formula = entry.formula.trim();
+
+    if (seenFormulas.has(formula)) {
+      issues.push(
+        issue(
+          "DUPLICATE_SPECIES",
+          `${side} contains duplicate formula ${formula}.`,
+          reactionId,
+        ),
+      );
+    }
+
+    seenFormulas.add(formula);
+
+    const parsed = parseChemicalFormula(formula);
 
     if (!parsed.valid) {
       issues.push(
-        createIssue(
+        issue(
           "INVALID_FORMULA",
-          `Invalid formula "${item.formula}".`,
+          `Invalid formula "${formula}": ${parsed.issues
+            .map((item) => item.message)
+            .join("; ")}`,
           reactionId,
         ),
       );
     }
 
     if (
-      !Number.isSafeInteger(item.coefficient) ||
-      item.coefficient <= 0
+      typeof entry.coefficient !== "number" ||
+      !Number.isSafeInteger(entry.coefficient) ||
+      entry.coefficient <= 0
     ) {
       issues.push(
-        createIssue(
+        issue(
           "INVALID_COEFFICIENT",
-          `Coefficient for "${item.formula}" must be a positive safe integer.`,
+          `Coefficient for ${formula} must be a positive safe integer.`,
           reactionId,
         ),
       );
     }
-
-    if (seenFormulas.has(item.formula)) {
-      issues.push(
-        createIssue(
-          "DUPLICATE_SPECIES",
-          `Duplicate formula "${item.formula}" on ${side}.`,
-          reactionId,
-        ),
-      );
-    }
-
-    seenFormulas.add(item.formula);
   }
 
   return issues;
 }
 
-function getAtomTotals(
+function calculateAtomTotals(
   species: readonly EducationalReactionSpecies[],
 ): Map<string, number> | undefined {
   const totals = new Map<string, number>();
 
-  for (const item of species) {
-    const parsed = parseChemicalFormula(item.formula);
+  for (const entry of species) {
+    const parsed = parseChemicalFormula(entry.formula);
 
     if (
       !parsed.valid ||
-      !Number.isSafeInteger(item.coefficient) ||
-      item.coefficient <= 0
+      !Number.isSafeInteger(entry.coefficient) ||
+      entry.coefficient <= 0
     ) {
       return undefined;
     }
@@ -165,7 +270,7 @@ function getAtomTotals(
     for (const element of parsed.composition) {
       const next =
         (totals.get(element.symbol) ?? 0) +
-        element.count * item.coefficient;
+        element.count * entry.coefficient;
 
       if (!Number.isSafeInteger(next)) {
         return undefined;
@@ -181,103 +286,64 @@ function getAtomTotals(
 function validateAtomBalance(
   reaction: EducationalReaction,
 ): EducationalReactionIssue[] {
-  const reactants = getAtomTotals(reaction.reactants);
-  const products = getAtomTotals(reaction.products);
+  const reactantTotals = calculateAtomTotals(reaction.reactants);
+  const productTotals = calculateAtomTotals(reaction.products);
 
-  // Formula validation reports malformed formulas separately.
-  if (!reactants || !products) {
+  if (!reactantTotals || !productTotals) {
     return [];
   }
 
   const symbols = new Set([
-    ...reactants.keys(),
-    ...products.keys(),
+    ...reactantTotals.keys(),
+    ...productTotals.keys(),
   ]);
 
+  const differences: string[] = [];
+
   for (const symbol of symbols) {
-    if (
-      (reactants.get(symbol) ?? 0) !==
-      (products.get(symbol) ?? 0)
-    ) {
-      return [
-        createIssue(
-          "ATOM_IMBALANCE",
-          `Atom count for ${symbol} is not balanced.`,
-          reaction.id,
-        ),
-      ];
+    const reactantCount = reactantTotals.get(symbol) ?? 0;
+    const productCount = productTotals.get(symbol) ?? 0;
+
+    if (reactantCount !== productCount) {
+      differences.push(
+        `${symbol}: reactants=${reactantCount}, products=${productCount}`,
+      );
     }
   }
 
-  return [];
+  if (differences.length === 0) {
+    return [];
+  }
+
+  return [
+    issue(
+      "ATOM_IMBALANCE",
+      `Reaction is not atom-balanced (${differences.join("; ")}).`,
+      reaction.id,
+    ),
+  ];
 }
 
-function validateSources(
-  sources: readonly EducationalReactionSource[],
-  reactionId: string,
+function validateReaction(
+  value: unknown,
 ): EducationalReactionIssue[] {
-  if (!Array.isArray(sources) || sources.length === 0) {
+  if (!isRecord(value)) {
     return [
-      createIssue(
-        "INVALID_SOURCE",
-        "At least one traceable source is required.",
-        reactionId,
+      issue(
+        "INVALID_ENTRY",
+        "Reaction entry must be an object.",
       ),
     ];
   }
 
-  const issues: EducationalReactionIssue[] = [];
-
-  for (const source of sources) {
-    if (
-      !source ||
-      !isNonEmptyString(source.title) ||
-      !isNonEmptyString(source.publisher) ||
-      !isNonEmptyString(source.locator) ||
-      !isNonEmptyString(source.accessedAt) ||
-      !/^https:\/\/\S+$/i.test(source.url)
-    ) {
-      issues.push(
-        createIssue(
-          "INVALID_SOURCE",
-          "Each source requires a title, publisher, HTTPS URL, locator, and access date.",
-          reactionId,
-        ),
-      );
-      continue;
-    }
-
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(source.accessedAt)) {
-      issues.push(
-        createIssue(
-          "INVALID_SOURCE",
-          "Source access date must use YYYY-MM-DD format.",
-          reactionId,
-        ),
-      );
-    }
-  }
-
-  return issues;
-}
-
-function validateReaction(
-  reaction: EducationalReaction,
-): EducationalReactionIssue[] {
-  if (!reaction || typeof reaction !== "object") {
-    return [
-      createIssue("INVALID_ENTRY", "Reaction entry must be an object."),
-    ];
-  }
-
   const reactionId =
-    typeof reaction.id === "string" ? reaction.id : "";
+    typeof value.id === "string" ? value.id : undefined;
 
   const issues: EducationalReactionIssue[] = [];
 
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(reactionId)) {
+  if (!isNonEmptyString(value.id) || !ID_PATTERN.test(value.id)) {
     issues.push(
-      createIssue(
+      issue(
         "INVALID_ID",
         "Reaction ID must use lowercase kebab-case.",
         reactionId,
@@ -285,49 +351,127 @@ function validateReaction(
     );
   }
 
-  if (!isNonEmptyString(reaction.name)) {
+  if (!isNonEmptyString(value.name)) {
     issues.push(
-      createIssue(
+      issue(
         "INVALID_NAME",
-        "Reaction name cannot be empty.",
+        "Reaction name is required.",
         reactionId,
       ),
     );
   }
 
-  if (!VALID_STATUSES.includes(reaction.status)) {
+  if (
+    typeof value.status !== "string" ||
+    !VALID_STATUSES.includes(
+      value.status as EducationalReactionStatus,
+    )
+  ) {
     issues.push(
-      createIssue(
+      issue(
         "INVALID_STATUS",
-        "Reaction status is not supported.",
+        "Reaction status is invalid.",
         reactionId,
       ),
     );
   }
 
   issues.push(
-    ...validateSpecies(reaction.reactants, reactionId, "Reactants"),
-    ...validateSpecies(reaction.products, reactionId, "Products"),
-    ...validateSources(reaction.sources, reactionId),
-    ...validateAtomBalance(reaction),
+    ...validateSpecies(value.reactants, "Reactants", reactionId ?? ""),
+    ...validateSpecies(value.products, "Products", reactionId ?? ""),
   );
 
-  if (reaction.status === "APPROVED") {
-    if (
-      !isNonEmptyString(reaction.approvedBy) ||
-      !isNonEmptyString(reaction.approvalReference)
-    ) {
+  if (Array.isArray(value.sources)) {
+    if (value.sources.length === 0) {
       issues.push(
-        createIssue(
-          "MISSING_APPROVAL_METADATA",
-          "Approved reactions require an approver and approval reference.",
+        issue(
+          "INVALID_SOURCE",
+          "At least one source is required.",
           reactionId,
         ),
       );
     }
+
+    for (const source of value.sources) {
+      issues.push(...validateSource(source, reactionId ?? ""));
+    }
+  } else {
+    issues.push(
+      issue(
+        "INVALID_SOURCE",
+        "Sources must be an array.",
+        reactionId,
+      ),
+    );
+  }
+
+  if (
+    value.status === "APPROVED" &&
+    (!isNonEmptyString(value.approvedBy) ||
+      !isNonEmptyString(value.approvalReference))
+  ) {
+    issues.push(
+      issue(
+        "MISSING_APPROVAL_METADATA",
+        "Approved reactions require approvedBy and approvalReference.",
+        reactionId,
+      ),
+    );
+  }
+
+  if (
+    Array.isArray(value.reactants) &&
+    Array.isArray(value.products) &&
+    value.reactants.length > 0 &&
+    value.products.length > 0 &&
+    value.reactants.every(
+      (entry) =>
+        isRecord(entry) &&
+        isNonEmptyString(entry.formula) &&
+        typeof entry.coefficient === "number" &&
+        Number.isSafeInteger(entry.coefficient) &&
+        entry.coefficient > 0,
+    ) &&
+    value.products.every(
+      (entry) =>
+        isRecord(entry) &&
+        isNonEmptyString(entry.formula) &&
+        typeof entry.coefficient === "number" &&
+        Number.isSafeInteger(entry.coefficient) &&
+        entry.coefficient > 0,
+    )
+  ) {
+    issues.push(
+      ...validateAtomBalance(
+        value as unknown as EducationalReaction,
+      ),
+    );
   }
 
   return issues;
+}
+
+function freezeReaction(
+  reaction: EducationalReaction,
+): EducationalReaction {
+  return Object.freeze({
+    ...reaction,
+    reactants: Object.freeze(
+      reaction.reactants.map((entry) =>
+        Object.freeze({ ...entry }),
+      ),
+    ),
+    products: Object.freeze(
+      reaction.products.map((entry) =>
+        Object.freeze({ ...entry }),
+      ),
+    ),
+    sources: Object.freeze(
+      reaction.sources.map((source) =>
+        Object.freeze({ ...source }),
+      ),
+    ),
+  });
 }
 
 export function buildEducationalReactionRegistry(
@@ -337,52 +481,42 @@ export function buildEducationalReactionRegistry(
   const seenIds = new Set<string>();
 
   for (const entry of entries) {
-    const id = entry?.id;
+    const entryIssues = validateReaction(entry);
+    issues.push(...entryIssues);
 
-    if (typeof id === "string" && seenIds.has(id)) {
-      issues.push(
-        createIssue(
-          "DUPLICATE_ID",
-          `Duplicate reaction ID "${id}".`,
-          id,
-        ),
-      );
+    if (typeof entry?.id === "string") {
+      if (seenIds.has(entry.id)) {
+        issues.push(
+          issue(
+            "DUPLICATE_ID",
+            `Duplicate reaction ID "${entry.id}".`,
+            entry.id,
+          ),
+        );
+      }
+
+      seenIds.add(entry.id);
     }
-
-    if (typeof id === "string") {
-      seenIds.add(id);
-    }
-
-    issues.push(...validateReaction(entry));
   }
 
-  const reactions = entries.map((entry) =>
-    Object.freeze({
-      ...entry,
-      reactants: Object.freeze(
-        entry.reactants.map((item) =>
-          Object.freeze({ ...item }),
-        ),
-      ),
-      products: Object.freeze(
-        entry.products.map((item) =>
-          Object.freeze({ ...item }),
-        ),
-      ),
-      sources: Object.freeze(
-        entry.sources.map((source) =>
-          Object.freeze({ ...source }),
-        ),
-      ),
-    }),
+  const reactions = entries
+    .filter(
+      (entry) =>
+        isRecord(entry) &&
+        Array.isArray(entry.reactants) &&
+        Array.isArray(entry.products) &&
+        Array.isArray(entry.sources),
+    )
+    .map(freezeReaction);
+
+  const frozenIssues = Object.freeze(
+    issues.map((entry) => Object.freeze({ ...entry })),
   );
 
   return Object.freeze({
     reactions: Object.freeze(reactions),
-    issues: Object.freeze(
-      issues.map((item) => Object.freeze({ ...item })),
-    ),
-    valid: issues.length === 0,
+    issues: frozenIssues,
+    valid: frozenIssues.length === 0,
   });
 }
 
