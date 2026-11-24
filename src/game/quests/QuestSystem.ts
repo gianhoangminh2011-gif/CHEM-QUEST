@@ -71,29 +71,29 @@ export const FIRST_DISCOVERY_QUEST: QuestDefinition = {
   ],
 };
 
-function getDiscoveredNodeIds(
-  state: GameplayState
-): string[] {
+function isValidObjective(objective: QuestObjective): boolean {
+  return (
+    Array.isArray(objective.targetIds) &&
+    Number.isInteger(objective.targetCount) &&
+    objective.targetCount > 0
+  );
+}
+
+function getDiscoveredNodeIds(state: GameplayState): string[] {
   return state.discoveredNodeIds;
 }
 
-function getCollectedResourceIds(
-  state: GameplayState
-): string[] {
+function getCollectedResourceIds(state: GameplayState): string[] {
   return state.collectedResourceIds;
 }
 
-function getCollectedSampleIds(
-  state: GameplayState
-): string[] {
+function getCollectedSampleIds(state: GameplayState): string[] {
   return Object.values(state.researchSamplesById)
     .filter((sample) => Boolean(sample && sample.id))
     .map((sample) => sample.id);
 }
 
-function getAnalyzedSampleIds(
-  state: GameplayState
-): string[] {
+function getAnalyzedSampleIds(state: GameplayState): string[] {
   return Object.keys(state.analysisResultsBySampleId)
     .filter((sampleId) => isAnalysed(state, sampleId));
 }
@@ -124,11 +124,7 @@ function getObjectiveCount(
   objective: QuestObjective,
   state: GameplayState
 ): number {
-  if (
-    !Array.isArray(objective.targetIds) ||
-    !Number.isInteger(objective.targetCount) ||
-    objective.targetCount < 1
-  ) {
+  if (!isValidObjective(objective)) {
     return 0;
   }
 
@@ -138,9 +134,7 @@ function getObjectiveCount(
     )
   );
 
-  const occurredIds = new Set(
-    getEventIds(state, objective.type)
-  );
+  const occurredIds = new Set(getEventIds(state, objective.type));
 
   let matchedCount = 0;
 
@@ -158,6 +152,7 @@ export function getQuestProgress(
   state: GameplayState
 ): QuestProgress {
   const objectives = quest.objectives.map((objective) => {
+    const valid = isValidObjective(objective);
     const currentCount = getObjectiveCount(objective, state);
 
     return {
@@ -165,7 +160,8 @@ export function getQuestProgress(
       description: objective.description,
       currentCount,
       targetCount: objective.targetCount,
-      completed: currentCount >= objective.targetCount,
+      completed:
+        valid && currentCount >= objective.targetCount,
     };
   });
 
