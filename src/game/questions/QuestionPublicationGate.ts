@@ -1,21 +1,23 @@
 /**
  * W3 Verified Question Publication Gate
  *
- * This module provides a fail-closed boundary between an approved
- * publication source and the Practice UI.
+ * Fail-closed boundary between an approved publication source
+ * and the Practice UI.
  *
- * It does NOT:
+ * This module does NOT:
  * - Verify scientific correctness.
  * - Interpret QDA fields or invent publication rules.
  * - Change question status.
  * - Resolve TDRs or OVR.
- * - Publish, approve, or modify questions.
+ * - Approve, publish, or modify questions.
  */
 
-export interface PublishedPracticeQuestion {
-  readonly id: string;
-  readonly [key: string]: unknown;
-}
+import type {
+  PublishedPracticeQuestion as PracticePanelPublishedPracticeQuestion,
+} from '../PracticePanel';
+
+export type PublishedPracticeQuestion =
+  PracticePanelPublishedPracticeQuestion;
 
 export type PublicationGateResult =
   | {
@@ -24,12 +26,67 @@ export type PublicationGateResult =
     }
   | {
       readonly status: 'unavailable';
-      readonly reason: 'source-missing' | 'source-error' | 'empty-source';
+      readonly reason:
+        | 'source-missing'
+        | 'source-error'
+        | 'empty-source'
+        | 'invalid-record';
     };
 
 export type PublishedQuestionSource = () =>
-  | Promise<readonly PublishedPracticeQuestion[]>
-  | readonly PublishedPracticeQuestion[];
+  | Promise<readonly unknown[]>
+  | readonly unknown[];
+
+function isRecord(
+  value: unknown,
+): value is Record<string, unknown> {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value)
+  );
+}
+
+function getQuestionId(value: unknown): string | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const presentation = value.presentation;
+  const snapshot = value.snapshot;
+  const answerKey = value.answerKey;
+
+  if (
+    !isRecord(presentation) ||
+    !isRecord(snapshot) ||
+    !isRecord(answerKey)
+  ) {
+    return null;
+  }
+
+  const presentationId = presentation.questionId;
+  const snapshotId = snapshot.questionId;
+
+  if (
+    typeof presentationId !== 'string' ||
+    typeof snapshotId !== 'string'
+  ) {
+    return null;
+  }
+
+  const normalizedPresentationId = presentationId.trim();
+  const normalizedSnapshotId = snapshotId.trim();
+
+  if (
+    normalizedPresentationId.length === 0 ||
+    normalizedSnapshotId.length === 0 ||
+    normalizedPresentationId !== normalizedSnapshotId
+  ) {
+    return null;
+  }
+
+  return normalizedPresentationId;
+}
 
 export async function loadPublishedPracticeQuestions(
   source?: PublishedQuestionSource,
@@ -41,10 +98,19 @@ export async function loadPublishedPracticeQuestions(
     };
   }
 
-  let questions: readonly PublishedPracticeQuestion[];
+  let records: readonly unknown[];
 
   try {
-    questions = await source();
+    const result: unknown = await source();
+
+    if (!Array.isArray(result)) {
+      return {
+        status: 'unavailable',
+        reason: 'invalid-record',
+      };
+    }
+
+    records = result;
   } catch {
     return {
       status: 'unavailable',
@@ -52,30 +118,32 @@ export async function loadPublishedPracticeQuestions(
     };
   }
 
-  if (!Array.isArray(questions) || questions.length === 0) {
+  if (records.length === 0) {
     return {
       status: 'unavailable',
       reason: 'empty-source',
     };
   }
 
-  const validQuestions = questions.every(
-    (question) =>
-      question !== null &&
-      typeof question === 'object' &&
-      typeof question.id === 'string' &&
-      question.id.trim().length > 0,
-  );
+  const seenIds = new Set<string>();
+  const questions: PublishedPracticeQuestion[] = [];
 
-  if (!validQuestions) {
-    return {
-      status: 'unavailable',
-      reason: 'source-error',
-    };
+  for (const record of records) {
+    const questionId = getQuestionId(record);
+
+    if (!questionId || seenIds.has(questionId)) {
+      return {
+        status: 'unavailable',
+        reason: 'invalid-record',
+      };
+    }
+
+    seenIds.add(questionId);
+    questions.push(record as PublishedPracticeQuestion);
   }
 
   return {
     status: 'ready',
-    questions: [...questions],
+    questions,
   };
 }
