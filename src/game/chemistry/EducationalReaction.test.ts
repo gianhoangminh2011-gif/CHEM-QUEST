@@ -1,9 +1,11 @@
+
 import { describe, expect, it } from "vitest";
 
 import {
   buildEducationalReactionRegistry,
   getApprovedEducationalReactionById,
   type EducationalReaction,
+  type EducationalReactionSource,
 } from "./EducationalReaction";
 
 import {
@@ -11,7 +13,7 @@ import {
   EDUCATIONAL_REACTION_REGISTRY,
 } from "./EducationalReactionDataset";
 
-const validSource = {
+const validSource: EducationalReactionSource = {
   title: "Chemistry reference",
   publisher: "Example Academic Publisher",
   url: "https://example.org/chemistry",
