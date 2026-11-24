@@ -1,3 +1,4 @@
+
 import type {
   AnswerKeyIntakeRecord,
 } from "../answer-keys/AnswerKeyIntake";
@@ -48,6 +49,30 @@ export function evaluateAnswer(
     throw new Error("Invalid answer key.");
   }
 
+  // Check question identity and snapshot before general eligibility.
+  if (
+    answerKey.questionId !== question.questionId ||
+    answerKey.questionVersion !== question.questionVersion ||
+    answerKey.questionSnapshotFingerprint !== question.fingerprint
+  ) {
+    throw new Error(
+      "Answer key does not match the question snapshot."
+    );
+  }
+
+  // Distinguish an invalid correct-choice reference from other
+  // answer-key eligibility failures.
+  if (
+    typeof answerKey.correctChoiceId !== "string" ||
+    !Array.isArray(question.choiceIds) ||
+    !question.choiceIds.includes(answerKey.correctChoiceId)
+  ) {
+    throw new Error(
+      "Answer key choice does not exist in the question."
+    );
+  }
+
+  // Revalidate the exact pinned key. Never substitute another version.
   const resolution = resolvePinnedAnswerKey(
     [answerKey],
     question,
@@ -56,7 +81,9 @@ export function evaluateAnswer(
   );
 
   if (resolution.status !== "eligible") {
-    throw new Error("Answer key is not eligible for evaluation.");
+    throw new Error(
+      "Answer key is not eligible for evaluation."
+    );
   }
 
   const eligibleKey = resolution.record;
