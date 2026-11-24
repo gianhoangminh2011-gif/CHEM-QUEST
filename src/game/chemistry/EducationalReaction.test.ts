@@ -209,6 +209,83 @@ describe("Educational reaction registry", () => {
     expect(registry.valid).toBe(false);
   });
 
+  it("requires each core claim to have its own source attribution", () => {
+    const invalidReaction: EducationalReaction = {
+      ...validReaction,
+      sources: [
+        {
+          ...validSource,
+          supports: ["REACTANTS_PRODUCTS"],
+        },
+      ],
+    };
+
+    const registry = buildEducationalReactionRegistry([invalidReaction]);
+
+    expect(registry.valid).toBe(false);
+    expect(registry.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "INVALID_SOURCE",
+          message: expect.stringContaining("STOICHIOMETRY"),
+        }),
+      ]),
+    );
+  });
+
+  it("accepts core claims supported by separate located sources", () => {
+    const reaction: EducationalReaction = {
+      ...validReaction,
+      sources: [
+        {
+          ...validSource,
+          title: "Reactants and products reference",
+          locator: "Section 2.1",
+          supports: ["REACTANTS_PRODUCTS"],
+        },
+        {
+          ...validSource,
+          title: "Stoichiometry reference",
+          locator: "Section 2.2",
+          supports: ["STOICHIOMETRY"],
+        },
+      ],
+    };
+
+    const registry = buildEducationalReactionRegistry([reaction]);
+
+    expect(registry.valid).toBe(true);
+    expect(registry.issues).toHaveLength(0);
+  });
+
+  it("rejects classification evidence when classification is absent", () => {
+    const invalidReaction: EducationalReaction = {
+      ...validReaction,
+      sources: [
+        {
+          ...validSource,
+          supports: [
+            "REACTANTS_PRODUCTS",
+            "STOICHIOMETRY",
+            "CLASSIFICATION",
+          ],
+        },
+      ],
+    };
+
+    const registry = buildEducationalReactionRegistry([invalidReaction]);
+
+    expect(registry.valid).toBe(false);
+    expect(registry.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "INVALID_SOURCE",
+          message: expect.stringContaining("no classification field"),
+        }),
+      ]),
+    );
+  });
+
   it("rejects duplicate reaction IDs", () => {
     const registry = buildEducationalReactionRegistry([
       validReaction,
