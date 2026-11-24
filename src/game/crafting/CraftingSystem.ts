@@ -11,10 +11,17 @@ export interface CraftingIngredient {
   readonly quantity: number;
 }
 
+export type RecipeApprovalStatus =
+  | 'DRAFT'
+  | 'REVIEW_REQUIRED'
+  | 'APPROVED'
+  | 'REJECTED';
+
 export interface CraftingRecipe {
   readonly id: string;
   readonly ingredients: readonly CraftingIngredient[];
   readonly output: CraftingIngredient;
+  readonly status: RecipeApprovalStatus;
   readonly oneShot?: boolean;
 }
 
@@ -28,6 +35,7 @@ export interface CraftingState {
 export type CraftingErrorCode =
   | 'UNKNOWN_RECIPE'
   | 'INVALID_RECIPE'
+  | 'RECIPE_NOT_APPROVED'
   | 'INVALID_INVENTORY'
   | 'INSUFFICIENT_INGREDIENTS'
   | 'ALREADY_CRAFTED';
@@ -80,12 +88,27 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
   );
 }
 
+function isRecipeApprovalStatus(
+  value: unknown,
+): value is RecipeApprovalStatus {
+  return (
+    value === 'DRAFT' ||
+    value === 'REVIEW_REQUIRED' ||
+    value === 'APPROVED' ||
+    value === 'REJECTED'
+  );
+}
+
 /** Returns an error message when a recipe is invalid, otherwise null. */
 export function validateRecipe(
   recipe: CraftingRecipe,
 ): string | null {
   if (!recipe || !isCanonicalId(recipe.id)) {
     return 'Recipe id must be a non-empty, trimmed string.';
+  }
+
+  if (!isRecipeApprovalStatus(recipe.status)) {
+    return 'Recipe status must be DRAFT, REVIEW_REQUIRED, APPROVED, or REJECTED.';
   }
 
   if (
@@ -237,6 +260,15 @@ export function craft(
 
   if (invalid !== null) {
     return fail(state, 'INVALID_RECIPE', invalid);
+  }
+
+  // Only explicitly approved recipes may be crafted.
+  if (recipe.status !== 'APPROVED') {
+    return fail(
+      state,
+      'RECIPE_NOT_APPROVED',
+      `Recipe "${recipe.id}" is not approved for crafting.`,
+    );
   }
 
   if (
