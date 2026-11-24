@@ -1,4 +1,3 @@
-
 import { PERIODIC_TABLE_DATA } from "./PeriodicTableData";
 
 export type FormulaIssueCode =
@@ -58,8 +57,12 @@ function createParseResult(
   composition: ElementComposition[],
   issues: FormulaIssue[],
 ): FormulaParseResult {
+  const valid = issues.length === 0 && composition.length > 0;
+
   const frozenComposition = Object.freeze(
-    composition.map((element) => Object.freeze({ ...element })),
+    (valid ? composition : []).map((element) =>
+      Object.freeze({ ...element }),
+    ),
   );
 
   const frozenIssues = Object.freeze(
@@ -67,7 +70,7 @@ function createParseResult(
   );
 
   return Object.freeze({
-    valid: frozenIssues.length === 0 && frozenComposition.length > 0,
+    valid,
     formula,
     composition: frozenComposition,
     issues: frozenIssues,
