@@ -33,9 +33,8 @@ function fail(
 
 /**
  * Creates an immutable registry from recipe definitions.
- *
- * All recipe lifecycle states may be registered for review and display.
- * CraftingTransactionAdapter remains responsible for enforcing APPROVED.
+ * All lifecycle states may be registered, but only APPROVED
+ * recipes may be crafted by CraftingTransactionAdapter.
  */
 export function createRecipeRegistry(
   recipes: readonly CraftingRecipe[],
@@ -47,16 +46,17 @@ export function createRecipeRegistry(
     );
   }
 
-  const registry: Record<string, CraftingRecipe> = {};
+  // A null-prototype object safely supports IDs such as "__proto__".
+  const registry = Object.create(null) as Record<
+    string,
+    CraftingRecipe
+  >;
 
   for (const recipe of recipes) {
     const validationError = validateRecipe(recipe);
 
     if (validationError !== null) {
-      return fail(
-        "INVALID_RECIPE",
-        validationError,
-      );
+      return fail("INVALID_RECIPE", validationError);
     }
 
     if (Object.prototype.hasOwnProperty.call(registry, recipe.id)) {
