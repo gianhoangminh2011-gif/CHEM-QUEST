@@ -375,6 +375,31 @@ describe("Educational reaction registry", () => {
     );
   });
 
+  it("rejects a forged registry with an invalid approved reaction", () => {
+    const forgedReaction = {
+      ...validReaction,
+      status: "APPROVED",
+      approvedBy: "reviewer",
+      approvalReference: "APPROVAL-001",
+      products: [{ formula: "H2O", coefficient: 1 }],
+    };
+
+    const forgedRegistry = {
+      reactions: [forgedReaction],
+      issues: [],
+      valid: true,
+    } as unknown as ReturnType<
+      typeof buildEducationalReactionRegistry
+    >;
+
+    expect(
+      getApprovedEducationalReactionById(
+        forgedRegistry,
+        forgedReaction.id,
+      ),
+    ).toBeUndefined();
+  });
+
   it("freezes registry data deeply", () => {
     const registry = buildEducationalReactionRegistry([validReaction]);
 
