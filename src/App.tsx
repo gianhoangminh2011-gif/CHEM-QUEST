@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import PhaserGame from './game/PhaserGame';
 import LabPanel from './game/LabPanel';
+import PracticePanel from './game/PracticePanel';
 import PeriodicTable from './game/elements/PeriodicTable';
 import {
   createGameplayState,
@@ -37,7 +38,13 @@ import {
   type ResearchSample,
 } from './game/chemistry/ChemistrySystem';
 
-type Panel = 'quest' | 'codex' | 'periodic-table' | 'bag' | 'lab';
+type Panel =
+  | 'quest'
+  | 'codex'
+  | 'periodic-table'
+  | 'bag'
+  | 'lab'
+  | 'practice';
 
 const approvedReactions = REACTION_REGISTRY_ENTRIES
   .filter((entry) => entry.approvalStatus === 'APPROVED')
@@ -580,6 +587,15 @@ function App() {
           </button>
 
           <button
+            className={
+              activePanel === 'practice' ? 'nav-item active' : 'nav-item'
+            }
+            onClick={() => setActivePanel('practice')}
+          >
+            <span>✎</span> Chemistry Practice
+          </button>
+
+          <button
             className={activePanel === 'bag' ? 'nav-item active' : 'nav-item'}
             onClick={() => setActivePanel('bag')}
           >
@@ -624,24 +640,31 @@ function App() {
               <p className="eyebrow">
                 {activePanel === 'periodic-table'
                   ? 'CHEMISTRY DATABASE'
-                  : 'WORLD 01 · THE BEGINNING'}
+                  : activePanel === 'practice'
+                    ? 'LEARNING CENTER'
+                    : 'WORLD 01 · THE BEGINNING'}
               </p>
               <h2>
                 {activePanel === 'periodic-table'
                   ? 'Periodic Table'
-                  : 'Emerald Frontier'}
+                  : activePanel === 'practice'
+                    ? 'Chemistry Practice'
+                    : 'Emerald Frontier'}
               </h2>
             </div>
 
-            {activePanel !== 'periodic-table' && (
-              <span className="world-status">
-                <span className="status-dot" /> EXPLORATION
-              </span>
-            )}
+            {activePanel !== 'periodic-table' &&
+              activePanel !== 'practice' && (
+                <span className="world-status">
+                  <span className="status-dot" /> EXPLORATION
+                </span>
+              )}
           </div>
 
           <section className="game-container">
-            {activePanel === 'periodic-table' ? (
+            {activePanel === 'practice' ? (
+              <PracticePanel />
+            ) : activePanel === 'periodic-table' ? (
               <PeriodicTable />
             ) : (
               <PhaserGame
@@ -652,12 +675,13 @@ function App() {
             )}
           </section>
 
-          {activePanel !== 'periodic-table' && (
-            <div className="game-footer">
-              <span>WASD / ARROW KEYS</span>
-              <span>MOVE YOUR EXPLORER</span>
-            </div>
-          )}
+          {activePanel !== 'periodic-table' &&
+            activePanel !== 'practice' && (
+              <div className="game-footer">
+                <span>WASD / ARROW KEYS</span>
+                <span>MOVE YOUR EXPLORER</span>
+              </div>
+            )}
         </div>
 
         <aside className="info-panel">
@@ -668,9 +692,11 @@ function App() {
                 ? 'ELEMENT CODEX'
                 : activePanel === 'periodic-table'
                   ? 'PERIODIC TABLE'
-                  : activePanel === 'bag'
-                    ? 'INVENTORY'
-                    : 'RESEARCH LAB'}
+                  : activePanel === 'practice'
+                    ? 'CHEMISTRY PRACTICE'
+                    : activePanel === 'bag'
+                      ? 'INVENTORY'
+                      : 'RESEARCH LAB'}
           </p>
 
           {activePanel === 'quest' && (
@@ -750,6 +776,18 @@ function App() {
               <p className="info-description">
                 Explore the periodic table, search by element name, symbol or
                 atomic number, and inspect scientific properties.
+              </p>
+            </>
+          )}
+
+          {activePanel === 'practice' && (
+            <>
+              <div className="quest-icon">✎</div>
+              <h3>Learning Center</h3>
+              <p className="info-description">
+                Practice chemistry using published questions and approved
+                answer keys. Questions without verification and approval
+                remain unavailable.
               </p>
             </>
           )}
