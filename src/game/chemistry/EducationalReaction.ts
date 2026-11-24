@@ -1,4 +1,3 @@
-
 import { parseChemicalFormula } from "../elements/FormulaCompound";
 
 export type EducationalReactionStatus =
@@ -739,28 +738,34 @@ export function buildEducationalReactionRegistry(
     }
   }
 
-  const reactions = entries
-    .filter(
-      (entry) =>
-        isRecord(entry) &&
-        Array.isArray(entry.reactants) &&
-        Array.isArray(entry.products) &&
-        Array.isArray(entry.sources),
-    )
-    .map((entry) =>
-      freezeReaction(entry as EducationalReaction),
-    );
-
   const frozenIssues = Object.freeze(
     issues.map((entry) =>
       Object.freeze({ ...entry }),
     ),
   );
 
+  const valid = frozenIssues.length === 0;
+
+  // Only expose reactions when the entire registry passes validation.
+  // This prevents malformed or partially valid entries from reaching consumers.
+  const reactions = valid
+    ? entries
+        .filter(
+          (entry) =>
+            isRecord(entry) &&
+            Array.isArray(entry.reactants) &&
+            Array.isArray(entry.products) &&
+            Array.isArray(entry.sources),
+        )
+        .map((entry) =>
+          freezeReaction(entry as EducationalReaction),
+        )
+    : [];
+
   return Object.freeze({
     reactions: Object.freeze(reactions),
     issues: frozenIssues,
-    valid: frozenIssues.length === 0,
+    valid,
   });
 }
 
