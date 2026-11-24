@@ -44,6 +44,7 @@ class MemoryStorage implements Storage {
 
 const recipe: CraftingRecipe = {
   id: "test-craft-recipe",
+  status: "APPROVED",
   ingredients: [
     { resourceId: "crystal-water", quantity: 2 },
     { resourceId: "crystal-salt", quantity: 1 },
@@ -128,6 +129,44 @@ describe("CraftingTransactionAdapter", () => {
     expect(service.getSnapshot().revision).toBe(0);
     expect(service.getSnapshot().inventory.resources).toEqual({
       "crystal-water": 4,
+    });
+  });
+
+  it("rejects unapproved recipes without changing inventory", () => {
+    const draftRecipe: CraftingRecipe = {
+      ...recipe,
+      status: "DRAFT",
+    };
+
+    const draftRegistry: RecipeRegistry = {
+      [draftRecipe.id]: draftRecipe,
+    };
+
+    const service = createService({
+      "crystal-water": 4,
+      "crystal-salt": 2,
+    });
+
+    const adapter = new CraftingTransactionAdapter(
+      service,
+      draftRegistry,
+    );
+
+    expect(
+      adapter.execute("tx-craft-draft-001", draftRecipe.id, 0),
+    ).toMatchObject({
+      success: false,
+      error: "RECIPE_NOT_APPROVED",
+    });
+
+    expect(service.getSnapshot()).toEqual({
+      inventory: {
+        resources: {
+          "crystal-water": 4,
+          "crystal-salt": 2,
+        },
+      },
+      revision: 0,
     });
   });
 
@@ -291,6 +330,7 @@ describe("CraftingTransactionAdapter", () => {
   it("rejects reuse of a transaction ID for a different recipe", () => {
     const secondRecipe: CraftingRecipe = {
       id: "test-craft-second-recipe",
+      status: "APPROVED",
       ingredients: [
         { resourceId: "crystal-water", quantity: 1 },
       ],
