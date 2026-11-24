@@ -37,5 +37,8 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: QDA TDR-01..06 Runtime Validation
+        run: npm run validate:qda:tdr-01-06
+
       - name: Build project
         run: npm run build
