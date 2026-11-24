@@ -1,3 +1,4 @@
+
 import { parseChemicalFormula } from "../elements/FormulaCompound";
 
 export type EducationalReactionStatus =
@@ -635,13 +636,12 @@ function validateReaction(
     );
   }
 
-  const canCheckBalance =
+  if (
     Array.isArray(value.reactants) &&
     Array.isArray(value.products) &&
     value.reactants.length > 0 &&
-    value.products.length > 0;
-
-  if (canCheckBalance) {
+    value.products.length > 0
+  ) {
     const structurallyValidSpecies = (
       species: unknown[],
     ): boolean =>
