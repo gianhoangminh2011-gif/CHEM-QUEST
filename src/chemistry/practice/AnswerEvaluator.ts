@@ -1,20 +1,34 @@
 
+import type {
+  AnswerKeyIntakeRecord,
+} from "../answer-keys/AnswerKeyIntake";
+
+import {
+  resolvePinnedAnswerKey,
+} from "../answer-keys/AnswerKeyRegistry";
+
+import type {
+  ChemistryQuestionSnapshot,
+} from "../answer-keys/AnswerKeyRegistry";
+
 export type AnswerEvaluation = {
   questionId: string;
   selectedAnswer: string | null;
-  correctAnswer: string;
   isCorrect: boolean;
   isAnswered: boolean;
+  answerKeyId: string;
+  answerKeyVersion: number;
 };
 
 export function evaluateAnswer(
-  questionId: string,
+  question: ChemistryQuestionSnapshot,
   selectedAnswer: string | null,
-  correctAnswer: string
+  answerKey: AnswerKeyIntakeRecord
 ): AnswerEvaluation {
   if (
-    typeof questionId !== "string" ||
-    questionId.trim().length === 0
+    !question ||
+    typeof question.questionId !== "string" ||
+    question.questionId.trim().length === 0
   ) {
     throw new Error("Question ID is required.");
   }
@@ -27,25 +41,65 @@ export function evaluateAnswer(
   }
 
   if (
-    typeof correctAnswer !== "string" ||
-    correctAnswer.trim().length === 0
+    !answerKey ||
+    typeof answerKey.answerKeyId !== "string" ||
+    !Number.isInteger(answerKey.version) ||
+    answerKey.version <= 0
   ) {
-    throw new Error("A valid correct answer is required.");
+    throw new Error("Invalid answer key.");
   }
+
+  // Check question identity and snapshot before general eligibility.
+  if (
+    answerKey.questionId !== question.questionId ||
+    answerKey.questionVersion !== question.questionVersion ||
+    answerKey.questionSnapshotFingerprint !== question.fingerprint
+  ) {
+    throw new Error(
+      "Answer key does not match the question snapshot."
+    );
+  }
+
+  // Distinguish an invalid correct-choice reference from other
+  // answer-key eligibility failures.
+  if (
+    typeof answerKey.correctChoiceId !== "string" ||
+    !Array.isArray(question.choiceIds) ||
+    !question.choiceIds.includes(answerKey.correctChoiceId)
+  ) {
+    throw new Error(
+      "Answer key choice does not exist in the question."
+    );
+  }
+
+  // Revalidate the exact pinned key. Never substitute another version.
+  const resolution = resolvePinnedAnswerKey(
+    [answerKey],
+    question,
+    answerKey.answerKeyId,
+    answerKey.version
+  );
+
+  if (resolution.status !== "eligible") {
+    throw new Error(
+      "Answer key is not eligible for evaluation."
+    );
+  }
+
+  const eligibleKey = resolution.record;
 
   const isAnswered =
     selectedAnswer !== null &&
     selectedAnswer.trim().length > 0;
 
-  const isCorrect =
-    isAnswered &&
-    selectedAnswer.trim() === correctAnswer.trim();
-
   return {
-    questionId,
+    questionId: question.questionId,
     selectedAnswer,
-    correctAnswer,
-    isCorrect,
+    isCorrect:
+      isAnswered &&
+      selectedAnswer.trim() === eligibleKey.correctChoiceId,
     isAnswered,
+    answerKeyId: eligibleKey.answerKeyId,
+    answerKeyVersion: eligibleKey.version,
   };
 }

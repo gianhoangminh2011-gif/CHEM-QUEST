@@ -5,27 +5,49 @@ export type PracticeSessionSummary = {
   correctAnswers: number;
   incorrectAnswers: number;
   unansweredQuestions: number;
+  evaluationUnavailable: number;
 };
 
 export function createSessionSummary(
-  evaluations: AnswerEvaluation[]
+  evaluations: readonly (AnswerEvaluation | null)[]
 ): PracticeSessionSummary {
-  const correctAnswers = evaluations.filter(
+  const evaluationUnavailable = evaluations.filter(
+    (item) => item === null
+  ).length;
+
+  const available = evaluations.filter(
+    (item): item is AnswerEvaluation => item !== null
+  );
+
+  const correctAnswers = available.filter(
     (item) => item.isAnswered && item.isCorrect
   ).length;
 
-  const incorrectAnswers = evaluations.filter(
+  const incorrectAnswers = available.filter(
     (item) => item.isAnswered && !item.isCorrect
   ).length;
 
-  const unansweredQuestions = evaluations.filter(
+  const unansweredQuestions = available.filter(
     (item) => !item.isAnswered
   ).length;
 
-  return {
+  const summary = {
     totalQuestions: evaluations.length,
     correctAnswers,
     incorrectAnswers,
     unansweredQuestions,
+    evaluationUnavailable,
   };
+
+  if (
+    summary.totalQuestions !==
+    summary.correctAnswers +
+      summary.incorrectAnswers +
+      summary.unansweredQuestions +
+      summary.evaluationUnavailable
+  ) {
+    throw new Error("Session summary invariant violated.");
+  }
+
+  return summary;
 }

@@ -1,4 +1,3 @@
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,35 +5,96 @@ import {
 } from "../../game/practice/PracticeSession";
 
 import {
-  submitChemistryAnswer,
+  quarantineAnswerKey,
+} from "../answer-keys/AnswerKeyIntake";
+
+import {
+  createApprovedTestAnswerKey,
+} from "../answer-keys/AnswerKeyTestFactory";
+
+import type {
+  ChemistryQuestionSnapshot,
+} from "../answer-keys/AnswerKeyRegistry";
+
+import {
+  createChemistryPracticeSession,
   getChemistrySessionSummary,
+  submitChemistryAnswer,
 } from "./ChemistryPracticeAdapter";
 
+const question1: ChemistryQuestionSnapshot = {
+  questionId: "Q-001",
+  questionVersion: "v1",
+  fingerprint: "fingerprint-001",
+  choiceIds: ["A", "B", "C", "D"],
+};
+
+const question2: ChemistryQuestionSnapshot = {
+  questionId: "Q-002",
+  questionVersion: "v1",
+  fingerprint: "fingerprint-002",
+  choiceIds: ["A", "B", "C", "D"],
+};
+
+function createSession(
+  sessionId: string,
+  questionIds: string[],
+  snapshots: ChemistryQuestionSnapshot[],
+  keys: ReturnType<typeof createApprovedTestAnswerKey>[]
+) {
+  const baseSession = createPracticeSession({
+    sessionId,
+    questionIds,
+  });
+
+  if (!baseSession) {
+    throw new Error("Test session could not be created.");
+  }
+
+  return createChemistryPracticeSession({
+    baseSession,
+    questionSnapshots: snapshots,
+    answerKeys: keys,
+  });
+}
+
 describe("ChemistryPracticeAdapter", () => {
-  it("evaluates an accepted correct answer", () => {
-    const session = createPracticeSession({
-      sessionId: "S-001",
-      questionIds: ["Q-001"],
-    })!;
+  it("evaluates a correct answer with the pinned approved key", () => {
+    const key = createApprovedTestAnswerKey();
+    const session = createSession(
+      "S-001",
+      ["Q-001"],
+      [question1],
+      [key]
+    );
 
     const result = submitChemistryAnswer(
-      session, "Q-001", "A", "A"
+      session,
+      "Q-001",
+      "A",
+      [key]
     );
 
     expect(result.status).toBe("accepted");
     expect(result.evaluation?.isCorrect).toBe(true);
     expect(result.feedback?.status).toBe("correct");
-    expect(result.session.status).toBe("completed");
+    expect(result.session.baseSession.status).toBe("completed");
   });
 
   it("evaluates an incorrect answer", () => {
-    const session = createPracticeSession({
-      sessionId: "S-002",
-      questionIds: ["Q-001"],
-    })!;
+    const key = createApprovedTestAnswerKey();
+    const session = createSession(
+      "S-002",
+      ["Q-001"],
+      [question1],
+      [key]
+    );
 
     const result = submitChemistryAnswer(
-      session, "Q-001", "B", "A"
+      session,
+      "Q-001",
+      "B",
+      [key]
     );
 
     expect(result.status).toBe("accepted");
@@ -42,141 +102,249 @@ describe("ChemistryPracticeAdapter", () => {
     expect(result.feedback?.status).toBe("incorrect");
   });
 
-  it("supports unanswered questions", () => {
-    const session = createPracticeSession({
-      sessionId: "S-003",
-      questionIds: ["Q-001"],
-    })!;
+  it("classifies an unanswered question only when its key is eligible", () => {
+    const key = createApprovedTestAnswerKey();
+    const session = createSession(
+      "S-003",
+      ["Q-001"],
+      [question1],
+      [key]
+    );
 
     const result = submitChemistryAnswer(
-      session, "Q-001", null, "A"
+      session,
+      "Q-001",
+      null,
+      [key]
     );
 
     expect(result.status).toBe("accepted");
     expect(result.feedback?.status).toBe("unanswered");
   });
 
-  it("rejects duplicate submissions without feedback", () => {
-    const session = createPracticeSession({
-      sessionId: "S-004",
-      questionIds: ["Q-001", "Q-002"],
-    })!;
+  it("fails closed when no approved key exists", () => {
+    const session = createSession(
+      "S-004",
+      ["Q-001"],
+      [question1],
+      []
+    );
+
+    const result = submitChemistryAnswer(
+      session,
+      "Q-001",
+      "A",
+      []
+    );
+
+    expect(result.status).toBe("evaluation_unavailable");
+    expect(result.feedback?.status).toBe("unavailable");
+    expect(result.session).toBe(session);
+    expect(result.session.baseSession.currentQuestionIndex).toBe(0);
+    expect(
+      result.session.baseSession.submissions["Q-001"]
+    ).toBeUndefined();
+  });
+
+  it("does not accept a caller-supplied correct answer", () => {
+    const key = createApprovedTestAnswerKey();
+    const session = createSession(
+      "S-005",
+      ["Q-001"],
+      [question1],
+      [key]
+    );
+
+    const result = submitChemistryAnswer(
+      session,
+      "Q-001",
+      "B",
+      [key]
+    );
+
+    expect(result.evaluation?.isCorrect).toBe(false);
+  });
+
+  it("fails closed when the pinned key is quarantined", () => {
+    const key = createApprovedTestAnswerKey();
+    const session = createSession(
+      "S-006",
+      ["Q-001"],
+      [question1],
+      [key]
+    );
+
+    const quarantined = quarantineAnswerKey(
+      key,
+      "Test quarantine",
+      "2026-01-02T10:00:00.000Z"
+    );
+
+    const result = submitChemistryAnswer(
+      session,
+      "Q-001",
+      "A",
+      [quarantined]
+    );
+
+    expect(result.status).toBe("evaluation_unavailable");
+    expect(result.session).toBe(session);
+    expect(result.session.baseSession.currentQuestionIndex).toBe(0);
+    expect(
+      result.session.baseSession.submissions["Q-001"]
+    ).toBeUndefined();
+  });
+
+  it("does not silently switch to a newer answer-key version", () => {
+    const originalKey = createApprovedTestAnswerKey();
+    const session = createSession(
+      "S-007",
+      ["Q-001"],
+      [question1],
+      [originalKey]
+    );
+
+    const newerKey = createApprovedTestAnswerKey(
+      "Q-001",
+      "B",
+      "v1",
+      "fingerprint-001",
+      "AK-Q-001-NEW",
+      2
+    );
+
+    const result = submitChemistryAnswer(
+      session,
+      "Q-001",
+      "B",
+      [newerKey]
+    );
+
+    expect(result.status).toBe("evaluation_unavailable");
+    expect(result.session.baseSession.currentQuestionIndex).toBe(0);
+  });
+
+  it("rejects duplicate submissions", () => {
+    const key = createApprovedTestAnswerKey();
+    const session = createSession(
+      "S-008",
+      ["Q-001", "Q-002"],
+      [question1, question2],
+      [key]
+    );
 
     const first = submitChemistryAnswer(
-      session, "Q-001", "A", "A"
+      session,
+      "Q-001",
+      "A",
+      [key]
     );
 
     const second = submitChemistryAnswer(
-      first.session, "Q-001", "B", "A"
+      first.session,
+      "Q-001",
+      "B",
+      [key]
     );
 
     expect(first.status).toBe("accepted");
     expect(second.status).toBe("duplicate");
-    expect(second.feedback).toBeNull();
     expect(second.evaluation).toBeNull();
+    expect(second.feedback).toBeNull();
   });
 
-  it("summarizes correct, incorrect, and unanswered questions", () => {
-    const session = createPracticeSession({
-      sessionId: "S-005",
-      questionIds: ["Q-001", "Q-002", "Q-003"],
-    })!;
+  it("rejects a choice ID that is not in the question snapshot", () => {
+    const key = createApprovedTestAnswerKey();
+    const session = createSession(
+      "S-009",
+      ["Q-001"],
+      [question1],
+      [key]
+    );
+
+    const result = submitChemistryAnswer(
+      session,
+      "Q-001",
+      "Z",
+      [key]
+    );
+
+    expect(result.status).toBe("invalid_submission");
+    expect(result.session.baseSession.currentQuestionIndex).toBe(0);
+  });
+
+  it("counts unavailable separately from unanswered", () => {
+    const key1 = createApprovedTestAnswerKey(
+      "Q-001",
+      "A",
+      "v1",
+      "fingerprint-001"
+    );
+
+    const session = createSession(
+      "S-010",
+      ["Q-001", "Q-002"],
+      [question1, question2],
+      [key1]
+    );
 
     const first = submitChemistryAnswer(
-      session, "Q-001", "A", "A"
+      session,
+      "Q-001",
+      null,
+      [key1]
     );
 
-    const second = submitChemistryAnswer(
-      first.session, "Q-002", "B", "A"
+    expect(first.status).toBe("accepted");
+
+    const summary = getChemistrySessionSummary(
+      first.session,
+      [key1]
     );
 
-    const third = submitChemistryAnswer(
-      second.session, "Q-003", null, "C"
-    );
-
-    expect(third.session.status).toBe("completed");
-
-    expect(
-      getChemistrySessionSummary(third.session, {
-        "Q-001": "A",
-        "Q-002": "A",
-        "Q-003": "C",
-      })
-    ).toEqual({
-      totalQuestions: 3,
-      correctAnswers: 1,
-      incorrectAnswers: 1,
+    expect(summary).toEqual({
+      totalQuestions: 2,
+      correctAnswers: 0,
+      incorrectAnswers: 0,
       unansweredQuestions: 1,
+      evaluationUnavailable: 1,
     });
   });
 
-  it("rejects summaries with missing correct answers", () => {
-    const session = createPracticeSession({
-      sessionId: "S-006",
-      questionIds: ["Q-001"],
-    })!;
-
-    expect(() =>
-      getChemistrySessionSummary(session, {})
-    ).toThrow(
-      "A valid correct answer is required for Q-001."
+  it("counts a previously submitted answer as unavailable after quarantine", () => {
+    const key = createApprovedTestAnswerKey();
+    const session = createSession(
+      "S-011",
+      ["Q-001"],
+      [question1],
+      [key]
     );
-  });
 
-  it("rejects summaries with empty correct answers", () => {
-    const session = createPracticeSession({
-      sessionId: "S-009",
-      questionIds: ["Q-001"],
-    })!;
-
-    expect(() =>
-      getChemistrySessionSummary(session, {
-        "Q-001": " ",
-      })
-    ).toThrow(
-      "A valid correct answer is required for Q-001."
+    const submitted = submitChemistryAnswer(
+      session,
+      "Q-001",
+      "A",
+      [key]
     );
-  });
 
-  it("rejects summaries with non-string correct answers", () => {
-    const session = createPracticeSession({
-      sessionId: "S-010",
-      questionIds: ["Q-001"],
-    })!;
-
-    expect(() =>
-      getChemistrySessionSummary(
-        session,
-        { "Q-001": 123 } as unknown as Record<string, string>
-      )
-    ).toThrow(
-      "A valid correct answer is required for Q-001."
+    const quarantined = quarantineAnswerKey(
+      key,
+      "Post-submission test quarantine",
+      "2026-01-02T10:00:00.000Z"
     );
-  });
 
-  it("rejects an empty correct answer", () => {
-    const session = createPracticeSession({
-      sessionId: "S-007",
-      questionIds: ["Q-001"],
-    })!;
+    const summary = getChemistrySessionSummary(
+      submitted.session,
+      [quarantined]
+    );
 
-    expect(() =>
-      submitChemistryAnswer(session, "Q-001", "A", " ")
-    ).toThrow("A valid correct answer is required.");
-  });
-
-  it("rejects an empty correct answer before changing the session", () => {
-    const session = createPracticeSession({
-      sessionId: "S-008",
-      questionIds: ["Q-001"],
-    })!;
-
-    expect(() =>
-      submitChemistryAnswer(session, "Q-001", "A", "")
-    ).toThrow();
-
-    expect(session.currentQuestionIndex).toBe(0);
-    expect(session.status).toBe("active");
-    expect(session.submissions["Q-001"]).toBeUndefined();
+    expect(summary.evaluationUnavailable).toBe(1);
+    expect(summary.correctAnswers).toBe(0);
+    expect(summary.totalQuestions).toBe(
+      summary.correctAnswers +
+        summary.incorrectAnswers +
+        summary.unansweredQuestions +
+        summary.evaluationUnavailable
+    );
   });
 });
