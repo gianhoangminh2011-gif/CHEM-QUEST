@@ -203,3 +203,59 @@ inventory transaction guarantees.
 
 This document is a specification draft, not scientific approval
 of any particular reaction.
+## 11. Scientific Source and Evidence Policy
+
+### 11.1 Acceptable Sources
+
+Reaction content must be supported by traceable scientific references.
+
+Preferred source categories:
+
+1. Peer-reviewed scientific publications.
+2. University-level chemistry textbooks and academic references.
+3. Government scientific agencies and recognized scientific databases.
+4. Established educational resources with identifiable authorship and references.
+
+Search snippets, anonymous posts, forums, and unsupported AI-generated content MUST NOT be used as sole evidence for approval.
+
+### 11.2 Evidence Traceability
+
+Each reaction entry must record:
+
+- Source title.
+- Author or issuing organization.
+- Publication or revision date, when available.
+- DOI, ISBN, stable URL, or other persistent identifier.
+- Specific page, section, table, or record supporting the claim.
+- Date the source was accessed, where applicable.
+
+A source reference must identify the evidence, not merely the website homepage.
+
+### 11.3 Conflicting Sources
+
+When reliable sources disagree:
+
+- The reaction MUST remain REVIEW_REQUIRED.
+- The disagreement must be documented.
+- Reviewers must compare source quality, scope, and publication date.
+- No unsupported interpretation may be selected automatically.
+- Approval requires a documented resolution and approval reference.
+
+### 11.4 Claim-Level Evidence
+
+Important claims must be traceable to evidence, including:
+
+- Reactants and products.
+- Stoichiometric coefficients.
+- Reaction conditions.
+- Reaction classification.
+- Ionic charges, when represented.
+
+A source supporting one claim does not automatically validate every other claim in the reaction entry.
+
+### 11.5 Approval Rule
+
+A reaction may enter APPROVED status only after its scientific claims have been checked against traceable sources and the review decision has been recorded.
+
+Automated formula parsing and atom-balance validation do not replace scientific review.
+
