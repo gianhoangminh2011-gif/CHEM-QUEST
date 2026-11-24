@@ -19,6 +19,10 @@ import {
   ReactionExecutionService,
 } from "./ReactionExecutionService";
 
+import {
+  InventoryTransactionService,
+} from "../inventory/InventoryTransactionService";
+
 import type { RuntimeInventoryState } from "../inventory/RuntimeInventorySystem";
 
 const mockedGetReactionById = vi.mocked(getReactionById);
@@ -239,6 +243,204 @@ describe("ReactionExecutionService", () => {
     expect(first.success).toBe(true);
     expect(second.success).toBe(true);
     expect(service.getSnapshot().revision).toBe(1);
+  });
+
+  it("executes an approved reaction and updates inventory", () => {
+    mockedGetReactionById.mockReturnValue(approvedReaction);
+
+    const service = createService();
+
+    const result = service.execute(
+      approvedReaction.id,
+      "tx-execute-001",
+    );
+
+    expect(result.success).toBe(true);
+
+    if (!result.success) return;
+
+    expect(result.record.status).toBe("COMMITTED");
+    expect(result.revision).toBe(1);
+
+    expect(service.getSnapshot()).toEqual({
+      inventory: {
+        resources: {
+          "crystal-water": 3,
+          "crystal-steam": 1,
+        },
+      },
+      revision: 1,
+    });
+  });
+
+  it("keeps execute idempotent when the same transaction is repeated", () => {
+    mockedGetReactionById.mockReturnValue(approvedReaction);
+
+    const service = createService();
+
+    const first = service.execute(
+      approvedReaction.id,
+      "tx-execute-repeat",
+    );
+
+    const snapshotAfterFirst = service.getSnapshot();
+
+    const second = service.execute(
+      approvedReaction.id,
+      "tx-execute-repeat",
+    );
+
+    expect(first.success).toBe(true);
+    expect(second.success).toBe(true);
+
+    expect(service.getSnapshot()).toEqual(snapshotAfterFirst);
+    expect(service.getSnapshot().revision).toBe(1);
+
+    expect(service.getSnapshot().inventory.resources).toEqual({
+      "crystal-water": 3,
+      "crystal-steam": 1,
+    });
+  });
+
+  it("rejects reuse of an executed transaction ID for another reaction", () => {
+    mockedGetReactionById.mockReturnValue(approvedReaction);
+
+    const service = createService();
+
+    const first = service.execute(
+      approvedReaction.id,
+      "tx-execute-duplicate",
+    );
+
+    expect(first.success).toBe(true);
+
+    const snapshotAfterFirst = service.getSnapshot();
+
+    mockedGetReactionById.mockReturnValue(
+      anotherApprovedReaction,
+    );
+
+    const second = service.execute(
+      anotherApprovedReaction.id,
+      "tx-execute-duplicate",
+    );
+
+    expect(second).toMatchObject({
+      success: false,
+      error: "DUPLICATE_TRANSACTION_ID",
+    });
+
+    expect(service.getSnapshot()).toEqual(snapshotAfterFirst);
+  });
+
+  it("does not execute a reaction that is not approved", () => {
+    const service = createService();
+    const before = service.getSnapshot();
+
+    const result = service.execute(
+      approvedReaction.id,
+      "tx-unapproved-001",
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      error: "REACTION_NOT_APPROVED",
+    });
+
+    expect(service.getSnapshot()).toEqual(before);
+  });
+
+  it("does not mutate inventory when execute has insufficient materials", () => {
+    mockedGetReactionById.mockReturnValue(approvedReaction);
+
+    const service = createService({
+      "crystal-water": 1,
+    });
+
+    const before = service.getSnapshot();
+
+    const result = service.execute(
+      approvedReaction.id,
+      "tx-insufficient-001",
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      error: "INSUFFICIENT_RESOURCES",
+    });
+
+    expect(service.getSnapshot()).toEqual(before);
+  });
+
+  it("does not execute a transaction that was already rolled back", () => {
+    mockedGetReactionById.mockReturnValue(approvedReaction);
+
+    const service = createService();
+
+    const prepared = service.prepare(
+      createRequest("tx-rolled-back-001"),
+    );
+
+    expect(prepared.success).toBe(true);
+
+    const rolledBack = service.rollback(
+      "tx-rolled-back-001",
+    );
+
+    expect(rolledBack.success).toBe(true);
+
+    const before = service.getSnapshot();
+
+    const result = service.execute(
+      approvedReaction.id,
+      "tx-rolled-back-001",
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      error: "TRANSACTION_ALREADY_ROLLED_BACK",
+    });
+
+    expect(service.getSnapshot()).toEqual(before);
+  });
+
+  it("reuses the existing InventoryTransactionService instance", () => {
+    mockedGetReactionById.mockReturnValue(approvedReaction);
+
+    const transactions = new InventoryTransactionService(
+      createInventory({
+        "crystal-water": 5,
+      }),
+      0,
+      new MemoryStorage(),
+    );
+
+    const service = new ReactionExecutionService(transactions);
+
+    expect(service.getSnapshot()).toEqual(
+      transactions.getSnapshot(),
+    );
+
+    const result = service.execute(
+      approvedReaction.id,
+      "tx-shared-service-001",
+    );
+
+    expect(result.success).toBe(true);
+
+    expect(service.getSnapshot()).toEqual(
+      transactions.getSnapshot(),
+    );
+
+    expect(transactions.getSnapshot()).toEqual({
+      inventory: {
+        resources: {
+          "crystal-water": 3,
+          "crystal-steam": 1,
+        },
+      },
+      revision: 1,
+    });
   });
 
   it("rolls back a prepared transaction without changing inventory", () => {

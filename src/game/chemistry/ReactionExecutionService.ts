@@ -21,19 +21,8 @@ export type ReactionExecutionErrorCode =
   | "REACTION_NOT_APPROVED"
   | "INVALID_TRANSACTION_ID"
   | "INVALID_REVISION"
-  | "REVISION_CONFLICT"
   | "DUPLICATE_TRANSACTION_ID"
-  | "TRANSACTION_NOT_FOUND"
-  | "TRANSACTION_ALREADY_ROLLED_BACK"
-  | "TRANSACTION_ALREADY_COMMITTED"
-  | "INVALID_MATERIAL_ID"
-  | "INVALID_INVENTORY"
-  | "REVISION_OVERFLOW"
-  | "INVALID_REACTION"
-  | "INSUFFICIENT_RESOURCES"
-  | "INVALID_QUANTITY"
-  | "DUPLICATE_RESOURCE"
-  | "QUANTITY_OVERFLOW";
+  | "TRANSACTION_ALREADY_ROLLED_BACK";
 
 export type ReactionExecutionResult =
   | InventoryTransactionResult
@@ -47,10 +36,14 @@ function failure(
   error: ReactionExecutionErrorCode,
   message: string,
 ): ReactionExecutionResult {
-  return { success: false, error, message };
+  return {
+    success: false,
+    error,
+    message,
+  };
 }
 
-function isValidReactionId(value: unknown): value is string {
+function isValidIdentifier(value: unknown): value is string {
   if (
     typeof value !== "string" ||
     !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(value)
@@ -61,7 +54,10 @@ function isValidReactionId(value: unknown): value is string {
   return (
     value !== "__proto__" &&
     value !== "prototype" &&
-    !Object.prototype.hasOwnProperty.call(Object.prototype, value)
+    !Object.prototype.hasOwnProperty.call(
+      Object.prototype,
+      value,
+    )
   );
 }
 
@@ -69,15 +65,20 @@ export class ReactionExecutionService {
   readonly #transactions: InventoryTransactionService;
 
   constructor(
-    initialInventory: RuntimeInventoryState,
+    inventoryOrService:
+      | RuntimeInventoryState
+      | InventoryTransactionService,
     initialRevision = 0,
     storage?: Storage,
   ) {
-    this.#transactions = new InventoryTransactionService(
-      initialInventory,
-      initialRevision,
-      storage,
-    );
+    this.#transactions =
+      inventoryOrService instanceof InventoryTransactionService
+        ? inventoryOrService
+        : new InventoryTransactionService(
+            inventoryOrService,
+            initialRevision,
+            storage,
+          );
   }
 
   getSnapshot() {
@@ -94,17 +95,14 @@ export class ReactionExecutionService {
       );
     }
 
-    if (!isValidReactionId(request.reactionId)) {
+    if (!isValidIdentifier(request.reactionId)) {
       return failure(
         "INVALID_REACTION_ID",
         "Invalid reaction ID.",
       );
     }
 
-    if (
-      typeof request.transactionId !== "string" ||
-      !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(request.transactionId)
-    ) {
+    if (!isValidIdentifier(request.transactionId)) {
       return failure(
         "INVALID_TRANSACTION_ID",
         "Invalid transaction ID.",
@@ -135,6 +133,79 @@ export class ReactionExecutionService {
       reaction,
       request.expectedRevision,
     );
+  }
+
+  execute(
+    reactionId: string,
+    transactionId: string,
+  ): ReactionExecutionResult {
+    if (!isValidIdentifier(reactionId)) {
+      return failure(
+        "INVALID_REACTION_ID",
+        "Invalid reaction ID.",
+      );
+    }
+
+    if (!isValidIdentifier(transactionId)) {
+      return failure(
+        "INVALID_TRANSACTION_ID",
+        "Invalid transaction ID.",
+      );
+    }
+
+    const reaction = getReactionById(reactionId);
+
+    if (!reaction) {
+      return failure(
+        "REACTION_NOT_APPROVED",
+        "Reaction is unknown or has not been approved.",
+      );
+    }
+
+    const existing = this.#transactions.getTransaction(
+      transactionId,
+    );
+
+    if (existing) {
+      if (existing.reactionId !== reaction.id) {
+        return failure(
+          "DUPLICATE_TRANSACTION_ID",
+          "Transaction ID belongs to a different reaction.",
+        );
+      }
+
+      if (existing.status === "ROLLED_BACK") {
+        return failure(
+          "TRANSACTION_ALREADY_ROLLED_BACK",
+          "This reaction transaction was already rolled back.",
+        );
+      }
+
+      // COMMITTED transactions remain idempotent.
+      // PREPARED transactions resume through the same commit path.
+      return this.#transactions.commit(transactionId);
+    }
+
+    const snapshot = this.#transactions.getSnapshot();
+
+    const prepared = this.#transactions.prepare(
+      transactionId,
+      reaction,
+      snapshot.revision,
+    );
+
+    if (!prepared.success) {
+      return prepared;
+    }
+
+    if (prepared.record.status === "ROLLED_BACK") {
+      return failure(
+        "TRANSACTION_ALREADY_ROLLED_BACK",
+        "This reaction transaction was already rolled back.",
+      );
+    }
+
+    return this.#transactions.commit(transactionId);
   }
 
   commit(
