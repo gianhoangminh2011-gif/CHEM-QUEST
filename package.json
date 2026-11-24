@@ -1,3 +1,4 @@
+
 {
   "name": "chem-quest",
   "version": "0.1.0",
@@ -8,7 +9,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "validate:qda:tdr-01-06": "node --experimental-strip-types validation/tdr-01-06-runtime-check.mts"
   },
   "dependencies": {
     "phaser": "^3.90.0",
