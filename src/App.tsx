@@ -1,9 +1,12 @@
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 import PhaserGame from './game/PhaserGame';
 import LabPanel from './game/LabPanel';
 import PracticePanel from './game/PracticePanel';
 import PeriodicTable from './game/elements/PeriodicTable';
+import {
+  loadPublishedPracticeQuestions,
+  type PublicationGateResult,
+} from './game/questions/QuestionPublicationGate';
 import {
   createGameplayState,
   updateGameplayState,
@@ -53,6 +56,12 @@ const approvedReactions = REACTION_REGISTRY_ENTRIES
 function App() {
   const [activePanel, setActivePanel] = useState<Panel>('quest');
 
+  const [publicationGate, setPublicationGate] =
+    useState<PublicationGateResult>({
+      status: 'unavailable',
+      reason: 'source-missing',
+    });
+
   const [gameplayState, setGameplayState] =
     useState<GameplayState>(createGameplayState);
 
@@ -80,6 +89,29 @@ function App() {
     useRef<ReactionExecutionService | null>(null);
 
   const inventoryRemovalSequence = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void loadPublishedPracticeQuestions()
+      .then((result) => {
+        if (!cancelled) {
+          setPublicationGate(result);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPublicationGate({
+            status: 'unavailable',
+            reason: 'source-error',
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleGameplayStateChange = useCallback(
     (nextState: GameplayState) => {
@@ -331,7 +363,6 @@ function App() {
       craftingTransactions.current =
         new CraftingTransactionAdapter(service);
 
-      // Reaction execution must use the same durable inventory service.
       reactionExecution.current =
         new ReactionExecutionService(service);
 
@@ -663,7 +694,13 @@ function App() {
 
           <section className="game-container">
             {activePanel === 'practice' ? (
-              <PracticePanel />
+              <PracticePanel
+                publishedQuestions={
+                  publicationGate.status === 'ready'
+                    ? publicationGate.questions
+                    : []
+                }
+              />
             ) : activePanel === 'periodic-table' ? (
               <PeriodicTable />
             ) : (
