@@ -1,75 +1,89 @@
-
-
 import { describe, expect, it } from "vitest";
 import { evaluateAnswer } from "./AnswerEvaluator";
+import { createApprovedTestAnswerKey } from "../answer-keys/AnswerKeyTestFactory";
+import type { ChemistryQuestionSnapshot } from "../answer-keys/AnswerKeyRegistry";
+
+const question: ChemistryQuestionSnapshot = {
+  questionId: "Q-001",
+  questionVersion: "v1",
+  fingerprint: "fingerprint-001",
+  choiceIds: ["A", "B", "C", "D"],
+};
 
 describe("evaluateAnswer", () => {
-  it("identifies a correct answer", () => {
-    expect(evaluateAnswer("Q-001", "A", "A")).toEqual({
+  const key = createApprovedTestAnswerKey();
+
+  it("evaluates a correct choice using an approved key", () => {
+    expect(evaluateAnswer(question, "A", key)).toEqual({
       questionId: "Q-001",
       selectedAnswer: "A",
-      correctAnswer: "A",
       isCorrect: true,
       isAnswered: true,
+      answerKeyId: "AK-Q-001",
+      answerKeyVersion: 1,
     });
   });
 
-  it("identifies an incorrect answer", () => {
-    const result = evaluateAnswer("Q-001", "B", "A");
+  it("evaluates an incorrect choice", () => {
+    const result = evaluateAnswer(question, "B", key);
+
     expect(result.isCorrect).toBe(false);
     expect(result.isAnswered).toBe(true);
   });
 
-  it("identifies an unanswered question", () => {
-    const result = evaluateAnswer("Q-001", null, "A");
+  it("classifies null as unanswered", () => {
+    const result = evaluateAnswer(question, null, key);
+
     expect(result.isCorrect).toBe(false);
     expect(result.isAnswered).toBe(false);
   });
 
-  it("identifies a blank answer as unanswered", () => {
-    const result = evaluateAnswer("Q-001", "   ", "A");
+  it("classifies blank selection as unanswered", () => {
+    const result = evaluateAnswer(question, "   ", key);
+
     expect(result.isCorrect).toBe(false);
     expect(result.isAnswered).toBe(false);
   });
 
-  it("ignores surrounding whitespace when comparing answers", () => {
-    const result = evaluateAnswer("Q-001", " A ", "A");
-    expect(result.isCorrect).toBe(true);
+  it("rejects a key for a different question snapshot", () => {
+    expect(() =>
+      evaluateAnswer(
+        { ...question, fingerprint: "different-fingerprint" },
+        "A",
+        key
+      )
+    ).toThrow("Answer key does not match the question snapshot.");
   });
 
-  it("rejects an empty question ID", () => {
-    expect(() => evaluateAnswer("", "A", "A")).toThrow(
-      "Question ID is required."
+  it("rejects a choice ID that does not exist in the snapshot", () => {
+    const invalidKey = createApprovedTestAnswerKey(
+      "Q-001",
+      "Z"
     );
+
+    expect(() =>
+      evaluateAnswer(question, "A", invalidKey)
+    ).toThrow("Answer key choice does not exist in the question.");
   });
 
-  it("rejects a whitespace-only question ID", () => {
-    expect(() => evaluateAnswer("   ", "A", "A")).toThrow(
-      "Question ID is required."
-    );
+  it("rejects an unapproved key", () => {
+    const pendingKey = {
+      ...key,
+      approvalStatus: "pending" as const,
+    };
+
+    expect(() =>
+      evaluateAnswer(question, "A", pendingKey)
+    ).toThrow("Answer key is not eligible for evaluation.");
   });
 
   it("rejects a non-string selected answer", () => {
     expect(() =>
-      evaluateAnswer("Q-001", 123 as unknown as string, "A")
+      evaluateAnswer(
+        question,
+        123 as unknown as string,
+        key
+      )
     ).toThrow("Invalid selected answer.");
-  });
-
-  it("rejects an undefined selected answer", () => {
-    expect(() =>
-      evaluateAnswer("Q-001", undefined as unknown as string, "A")
-    ).toThrow("Invalid selected answer.");
-  });
-
-  it("rejects a blank correct answer", () => {
-    expect(() => evaluateAnswer("Q-001", "A", "   ")).toThrow(
-      "A valid correct answer is required."
-    );
-  });
-
-  it("rejects a non-string correct answer", () => {
-    expect(() =>
-      evaluateAnswer("Q-001", "A", 123 as unknown as string)
-    ).toThrow("A valid correct answer is required.");
   });
 });
