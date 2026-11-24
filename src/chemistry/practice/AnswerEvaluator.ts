@@ -1,20 +1,24 @@
+import type { AnswerKeyIntakeRecord } from "../answer-keys/AnswerKeyIntake";
+import type { ChemistryQuestionSnapshot } from "../answer-keys/AnswerKeyRegistry";
 
 export type AnswerEvaluation = {
   questionId: string;
   selectedAnswer: string | null;
-  correctAnswer: string;
   isCorrect: boolean;
   isAnswered: boolean;
+  answerKeyId: string;
+  answerKeyVersion: number;
 };
 
 export function evaluateAnswer(
-  questionId: string,
+  question: ChemistryQuestionSnapshot,
   selectedAnswer: string | null,
-  correctAnswer: string
+  answerKey: AnswerKeyIntakeRecord
 ): AnswerEvaluation {
   if (
-    typeof questionId !== "string" ||
-    questionId.trim().length === 0
+    !question ||
+    typeof question.questionId !== "string" ||
+    question.questionId.trim().length === 0
   ) {
     throw new Error("Question ID is required.");
   }
@@ -27,25 +31,40 @@ export function evaluateAnswer(
   }
 
   if (
-    typeof correctAnswer !== "string" ||
-    correctAnswer.trim().length === 0
+    answerKey.recordStatus !== "complete" ||
+    answerKey.verificationStatus !== "verified" ||
+    answerKey.approvalStatus !== "approved"
   ) {
-    throw new Error("A valid correct answer is required.");
+    throw new Error("Answer key is not eligible for evaluation.");
+  }
+
+  if (
+    answerKey.questionId !== question.questionId ||
+    answerKey.questionVersion !== question.questionVersion ||
+    answerKey.questionSnapshotFingerprint !== question.fingerprint
+  ) {
+    throw new Error("Answer key does not match the question snapshot.");
+  }
+
+  if (
+    typeof answerKey.correctChoiceId !== "string" ||
+    !question.choiceIds.includes(answerKey.correctChoiceId)
+  ) {
+    throw new Error("Answer key choice does not exist in the question.");
   }
 
   const isAnswered =
     selectedAnswer !== null &&
     selectedAnswer.trim().length > 0;
 
-  const isCorrect =
-    isAnswered &&
-    selectedAnswer.trim() === correctAnswer.trim();
-
   return {
-    questionId,
+    questionId: question.questionId,
     selectedAnswer,
-    correctAnswer,
-    isCorrect,
+    isCorrect:
+      isAnswered &&
+      selectedAnswer.trim() === answerKey.correctChoiceId,
     isAnswered,
+    answerKeyId: answerKey.answerKeyId,
+    answerKeyVersion: answerKey.version,
   };
 }
