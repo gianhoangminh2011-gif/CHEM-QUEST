@@ -1,6 +1,7 @@
 
 import {
   validateRecipe,
+  type CraftingIngredient,
   type CraftingRecipe,
   type RecipeRegistry,
 } from "./CraftingSystem";
@@ -67,7 +68,7 @@ export function createRecipeRegistry(
     }
 
     const frozenIngredients = Object.freeze(
-      recipe.ingredients.map((ingredient) =>
+      recipe.ingredients.map((ingredient: CraftingIngredient) =>
         Object.freeze({ ...ingredient }),
       ),
     );
