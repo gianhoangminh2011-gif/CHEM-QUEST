@@ -9,6 +9,11 @@ const OPENSTAX_SOURCE = {
   url: "https://openstax.org/books/chemistry-2e/pages/4-1-writing-and-balancing-chemical-equations",
   locator: "Section 4.1: examples of balancing chemical equations",
   accessedAt: "2026-11-24",
+  supports: [
+    "REACTANTS_PRODUCTS",
+    "STOICHIOMETRY",
+    "CLASSIFICATION",
+  ],
 } as const;
 
 /**
