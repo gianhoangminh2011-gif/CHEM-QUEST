@@ -1,4 +1,3 @@
-
 import {
   getReactionById,
 } from "./ReactionEngine";
@@ -22,6 +21,7 @@ export type ReactionExecutionErrorCode =
   | "REACTION_NOT_APPROVED"
   | "INVALID_TRANSACTION_ID"
   | "INVALID_REVISION"
+  | "DUPLICATE_TRANSACTION_ID"
   | "TRANSACTION_ALREADY_ROLLED_BACK";
 
 export type ReactionExecutionResult =
@@ -139,19 +139,62 @@ export class ReactionExecutionService {
     reactionId: string,
     transactionId: string,
   ): ReactionExecutionResult {
-    const snapshot = this.#transactions.getSnapshot();
-
-    const prepared = this.prepare({
-      reactionId,
-      transactionId,
-      expectedRevision: snapshot.revision,
-    });
-
-    if (!prepared.success) {
-      return prepared;
+    if (!isValidIdentifier(reactionId)) {
+      return failure(
+        "INVALID_REACTION_ID",
+        "Invalid reaction ID.",
+      );
     }
 
-    if (prepared.record.status === "COMMITTED") {
+    if (!isValidIdentifier(transactionId)) {
+      return failure(
+        "INVALID_TRANSACTION_ID",
+        "Invalid transaction ID.",
+      );
+    }
+
+    const reaction = getReactionById(reactionId);
+
+    if (!reaction) {
+      return failure(
+        "REACTION_NOT_APPROVED",
+        "Reaction is unknown or has not been approved.",
+      );
+    }
+
+    const existing = this.#transactions.getTransaction(
+      transactionId,
+    );
+
+    if (existing) {
+      if (existing.reactionId !== reaction.id) {
+        return failure(
+          "DUPLICATE_TRANSACTION_ID",
+          "Transaction ID belongs to a different reaction.",
+        );
+      }
+
+      if (existing.status === "ROLLED_BACK") {
+        return failure(
+          "TRANSACTION_ALREADY_ROLLED_BACK",
+          "This reaction transaction was already rolled back.",
+        );
+      }
+
+      // COMMITTED transactions remain idempotent.
+      // PREPARED transactions resume through the same commit path.
+      return this.#transactions.commit(transactionId);
+    }
+
+    const snapshot = this.#transactions.getSnapshot();
+
+    const prepared = this.#transactions.prepare(
+      transactionId,
+      reaction,
+      snapshot.revision,
+    );
+
+    if (!prepared.success) {
       return prepared;
     }
 
