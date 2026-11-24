@@ -1,4 +1,3 @@
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -55,6 +54,52 @@ describe("Educational reaction dataset", () => {
   it("builds a valid candidate registry", () => {
     expect(EDUCATIONAL_REACTION_REGISTRY.valid).toBe(true);
     expect(EDUCATIONAL_REACTION_REGISTRY.issues).toHaveLength(0);
+  });
+
+  it("provides a source locator for every candidate", () => {
+    for (const reaction of EDUCATIONAL_REACTION_CANDIDATES) {
+      expect(reaction.sources.length).toBeGreaterThan(0);
+
+      for (const source of reaction.sources) {
+        expect(source.title.trim().length).toBeGreaterThan(0);
+        expect(source.publisher.trim().length).toBeGreaterThan(0);
+        expect(source.url).toMatch(/^https:\/\//);
+        expect(source.locator.trim().length).toBeGreaterThan(0);
+        expect(source.accessedAt).toBe("2026-11-24");
+      }
+    }
+  });
+
+  it("records reactant, product, and stoichiometry evidence", () => {
+    for (const reaction of EDUCATIONAL_REACTION_CANDIDATES) {
+      const supportedClaims = new Set(
+        reaction.sources.flatMap((source) => source.supports),
+      );
+
+      expect(supportedClaims.has("REACTANTS_PRODUCTS")).toBe(true);
+      expect(supportedClaims.has("STOICHIOMETRY")).toBe(true);
+    }
+  });
+
+  it("does not claim classification evidence from the current source", () => {
+    for (const reaction of EDUCATIONAL_REACTION_CANDIDATES) {
+      for (const source of reaction.sources) {
+        expect(source.supports).not.toContain("CLASSIFICATION");
+      }
+    }
+  });
+
+  it("does not expose any candidate as approved", () => {
+    for (const reaction of EDUCATIONAL_REACTION_CANDIDATES) {
+      expect(reaction.status).toBe("REVIEW_REQUIRED");
+
+      expect(
+        getApprovedEducationalReactionById(
+          EDUCATIONAL_REACTION_REGISTRY,
+          reaction.id,
+        ),
+      ).toBeUndefined();
+    }
   });
 });
 
