@@ -1,25 +1,39 @@
+
 import {
   buildEducationalReactionRegistry,
   type EducationalReaction,
 } from "./EducationalReaction";
 
-const OPENSTAX_SOURCE = {
+const OPENSTAX_METHANE_SOURCE = {
   title: "Chemistry 2e, Section 4.1: Writing and Balancing Chemical Equations",
   publisher: "OpenStax",
   url: "https://openstax.org/books/chemistry-2e/pages/4-1-writing-and-balancing-chemical-equations",
-  locator: "Section 4.1: examples of balancing chemical equations",
+  locator:
+    "Opening example: methane and oxygen produce carbon dioxide and water; equation CH4 + 2O2 -> CO2 + 2H2O",
   accessedAt: "2026-11-24",
   supports: [
     "REACTANTS_PRODUCTS",
     "STOICHIOMETRY",
-    "CLASSIFICATION",
+  ],
+} as const;
+
+const OPENSTAX_WATER_SOURCE = {
+  title: "Chemistry 2e, Section 4.1: Writing and Balancing Chemical Equations",
+  publisher: "OpenStax",
+  url: "https://openstax.org/books/chemistry-2e/pages/4-1-writing-and-balancing-chemical-equations",
+  locator:
+    "Water decomposition example: equations 4.3–4.5, 2H2O -> 2H2 + O2",
+  accessedAt: "2026-11-24",
+  supports: [
+    "REACTANTS_PRODUCTS",
+    "STOICHIOMETRY",
   ],
 } as const;
 
 /**
- * These are educational candidate records.
- * They deliberately remain REVIEW_REQUIRED until scientific
- * review and PD approval are recorded.
+ * Educational candidates remain REVIEW_REQUIRED.
+ * Source metadata records the specific section or example
+ * supporting the reaction and its stoichiometry.
  */
 export const EDUCATIONAL_REACTION_CANDIDATES: readonly EducationalReaction[] =
   Object.freeze([
@@ -34,8 +48,7 @@ export const EDUCATIONAL_REACTION_CANDIDATES: readonly EducationalReaction[] =
         { formula: "CO2", coefficient: 1 },
         { formula: "H2O", coefficient: 2 },
       ],
-      classification: "Combustion",
-      sources: [OPENSTAX_SOURCE],
+      sources: [OPENSTAX_METHANE_SOURCE],
       status: "REVIEW_REQUIRED",
     },
     {
@@ -48,8 +61,7 @@ export const EDUCATIONAL_REACTION_CANDIDATES: readonly EducationalReaction[] =
         { formula: "H2", coefficient: 2 },
         { formula: "O2", coefficient: 1 },
       ],
-      classification: "Decomposition",
-      sources: [OPENSTAX_SOURCE],
+      sources: [OPENSTAX_WATER_SOURCE],
       status: "REVIEW_REQUIRED",
     },
   ]);
