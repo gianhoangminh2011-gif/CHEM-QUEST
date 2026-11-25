@@ -1,3 +1,4 @@
+
 import {
   SPECIES_STATUSES,
   validateSpeciesDefinition,
@@ -203,7 +204,15 @@ export class SpeciesCatalogue {
     }
 
     for (const branch of species.evolutionBranches) {
-      if (!this.entries.has(branch.targetSpeciesId)) {
+      if (branch.targetSpeciesId === species.id) {
+        issues.push(
+          makeIssue(
+            "SELF_EVOLUTION_REFERENCE",
+            "evolutionBranches",
+            "A Species cannot target itself.",
+          ),
+        );
+      } else if (!this.entries.has(branch.targetSpeciesId)) {
         issues.push(
           makeIssue(
             "UNKNOWN_EVOLUTION_TARGET",
@@ -255,10 +264,15 @@ export class SpeciesCatalogue {
     }
 
     for (const branch of species.evolutionBranches) {
-      if (
-        branch.targetSpeciesId !== species.id &&
-        !this.entries.has(branch.targetSpeciesId)
-      ) {
+      if (branch.targetSpeciesId === species.id) {
+        issues.push(
+          makeIssue(
+            "SELF_EVOLUTION_REFERENCE",
+            "evolutionBranches",
+            "A Species cannot target itself.",
+          ),
+        );
+      } else if (!this.entries.has(branch.targetSpeciesId)) {
         issues.push(
           makeIssue(
             "UNKNOWN_EVOLUTION_TARGET",
