@@ -201,7 +201,6 @@ export interface ContractValidationResult {
 }
 
 const ID_PATTERN = /^[A-Z0-9][A-Z0-9_-]{2,63}$/;
-const VERSION_PATTERN = /^[1-9]\d*$/;
 
 function isRecord(
   value: unknown,
