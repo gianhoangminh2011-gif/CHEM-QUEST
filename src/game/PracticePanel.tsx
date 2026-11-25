@@ -1,5 +1,4 @@
-
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import {
   createQuestionRepository,
@@ -8,6 +7,14 @@ import {
 import {
   createPracticeSessionFromRepository,
 } from './questions/QuestionPracticeSession';
+
+import {
+  loadPublishedPracticeQuestions,
+} from './questions/QuestionPublicationGate';
+
+import type {
+  PublishedQuestionSource,
+} from './questions/QuestionPublicationGate';
 
 import {
   createChemistryPracticeSession,
@@ -47,6 +54,12 @@ interface PracticePanelProps {
    * source. Do not pass synthetic test fixtures or draft questions.
    */
   publishedQuestions?: readonly PublishedPracticeQuestion[];
+
+  /**
+   * Runtime source connected to the approved publication dataset.
+   * The source is structurally checked by QuestionPublicationGate.
+   */
+  publishedQuestionSource?: PublishedQuestionSource;
 }
 
 interface ActivePractice {
@@ -57,6 +70,11 @@ interface ActivePractice {
   >;
   readonly answerKeys: readonly AnswerKeyIntakeRecord[];
 }
+
+type SourceStatus = 'loading' | 'ready' | 'unavailable';
+
+const EMPTY_PUBLISHED_QUESTIONS:
+  readonly PublishedPracticeQuestion[] = [];
 
 function isUsablePublishedQuestion(
   question: PublishedPracticeQuestion,
@@ -122,8 +140,25 @@ function isUsablePublishedQuestion(
 }
 
 function PracticePanel({
-  publishedQuestions = [],
+  publishedQuestions = EMPTY_PUBLISHED_QUESTIONS,
+  publishedQuestionSource,
 }: PracticePanelProps) {
+  const [loadedQuestions, setLoadedQuestions] =
+    useState<readonly PublishedPracticeQuestion[]>(
+      publishedQuestionSource
+        ? EMPTY_PUBLISHED_QUESTIONS
+        : publishedQuestions,
+    );
+
+  const [sourceStatus, setSourceStatus] =
+    useState<SourceStatus>(
+      publishedQuestionSource
+        ? 'loading'
+        : publishedQuestions.length > 0
+          ? 'ready'
+          : 'unavailable',
+    );
+
   const [activePractice, setActivePractice] =
     useState<ActivePractice | null>(null);
 
@@ -131,10 +166,58 @@ function PracticePanel({
   const [feedback, setFeedback] = useState('');
   const [waitingForNext, setWaitingForNext] = useState(false);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!publishedQuestionSource) {
+      setLoadedQuestions(publishedQuestions);
+      setSourceStatus(
+        publishedQuestions.length > 0
+          ? 'ready'
+          : 'unavailable',
+      );
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setLoadedQuestions(EMPTY_PUBLISHED_QUESTIONS);
+    setSourceStatus('loading');
+
+    void loadPublishedPracticeQuestions(
+      publishedQuestionSource,
+    )
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+
+        if (result.status === 'ready') {
+          setLoadedQuestions(result.questions);
+          setSourceStatus('ready');
+        } else {
+          setLoadedQuestions(EMPTY_PUBLISHED_QUESTIONS);
+          setSourceStatus('unavailable');
+        }
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+
+        setLoadedQuestions(EMPTY_PUBLISHED_QUESTIONS);
+        setSourceStatus('unavailable');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [publishedQuestionSource, publishedQuestions]);
+
   const eligibleQuestions = useMemo(() => {
     const seenQuestionIds = new Set<string>();
 
-    return publishedQuestions.filter((question) => {
+    return loadedQuestions.filter((question) => {
       if (!isUsablePublishedQuestion(question)) {
         return false;
       }
@@ -148,10 +231,13 @@ function PracticePanel({
       seenQuestionIds.add(questionId);
       return true;
     });
-  }, [publishedQuestions]);
+  }, [loadedQuestions]);
 
   const startPractice = () => {
-    if (eligibleQuestions.length === 0) {
+    if (
+      sourceStatus !== 'ready' ||
+      eligibleQuestions.length === 0
+    ) {
       setFeedback(
         'No verified and approved questions are available.',
       );
@@ -339,7 +425,11 @@ function PracticePanel({
             Eligible questions: {eligibleQuestions.length}
           </p>
 
-          {publishedQuestions.length === 0 ? (
+          {sourceStatus === 'loading' ? (
+            <p role="status">
+              Loading approved practice questions...
+            </p>
+          ) : sourceStatus === 'unavailable' ? (
             <p role="status">
               No published questions are connected yet.
               Practice is locked until verified question records
@@ -353,7 +443,7 @@ function PracticePanel({
           ) : (
             <>
               <p>
-                {publishedQuestions.length - eligibleQuestions.length}
+                {loadedQuestions.length - eligibleQuestions.length}
                 {' '}record(s) excluded because they did not pass
                 eligibility checks.
               </p>
@@ -368,6 +458,10 @@ function PracticePanel({
               </button>
             </>
           )}
+
+          {feedback && (
+            <p role="status">{feedback}</p>
+          )}
         </div>
       )}
 
@@ -381,7 +475,9 @@ function PracticePanel({
           <p>Correct: {summary.correctAnswers}</p>
           <p>Incorrect: {summary.incorrectAnswers}</p>
           <p>Unanswered: {summary.unansweredQuestions}</p>
-          <p>Evaluation unavailable: {summary.evaluationUnavailable}</p>
+          <p>
+            Evaluation unavailable: {summary.evaluationUnavailable}
+          </p>
 
           <button
             type="button"
