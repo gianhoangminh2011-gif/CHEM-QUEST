@@ -1,12 +1,9 @@
+
 import { describe, expect, it } from "vitest";
 
-import {
-  SpeciesCatalogue,
-} from "./SpeciesCatalogue";
+import { SpeciesCatalogue } from "./SpeciesCatalogue";
 
-import type {
-  SpeciesDefinition,
-} from "./CreatureRealmContracts";
+import type { SpeciesDefinition } from "./CreatureRealmContracts";
 
 const hydrogen: SpeciesDefinition = {
   id: "SP-0001",
@@ -341,5 +338,30 @@ describe("SpeciesCatalogue", () => {
     expect(Object.isFrozen(species)).toBe(true);
     expect(Object.isFrozen(species?.traits)).toBe(true);
     expect(Object.isFrozen(species?.evolutionBranches)).toBe(true);
+  });
+
+  it("rejects updates that reference the same Species as an evolution target", () => {
+    const catalogue = new SpeciesCatalogue([hydrogen]);
+
+    const result = catalogue.update({
+      ...hydrogen,
+      version: 2,
+      evolutionBranches: [
+        {
+          id: "BR-SELF",
+          targetSpeciesId: "SP-0001",
+          requirements: [],
+        },
+      ],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "SELF_EVOLUTION_REFERENCE",
+        }),
+      ]),
+    );
   });
 });
