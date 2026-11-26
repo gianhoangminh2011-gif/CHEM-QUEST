@@ -3,7 +3,6 @@ import {
   validateSpeciesReferences,
   type ContractIssue,
   type CreatureProfile,
-  type SpeciesDefinition,
 } from "./CreatureRealmContracts";
 import { SpeciesCatalogue } from "./SpeciesCatalogue";
 
