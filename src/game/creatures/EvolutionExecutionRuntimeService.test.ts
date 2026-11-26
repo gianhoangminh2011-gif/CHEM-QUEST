@@ -282,7 +282,7 @@ describe("EvolutionExecutionRuntimeService", () => {
 
     expect(result.decision).toBe("REJECTED_TRANSACTION");
     expect(result.transaction?.decision).toBe(
-      "REJECTED_INSUFFICIENT_ITEM_COST",
+      "REQUIREMENTS_NOT_MET",
     );
     expect(store.snapshot()).toEqual(before);
   });
