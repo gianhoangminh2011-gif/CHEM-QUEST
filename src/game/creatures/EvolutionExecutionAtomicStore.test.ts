@@ -1,4 +1,3 @@
-
 import { describe, expect, it } from "vitest";
 
 import type {
@@ -16,7 +15,12 @@ import {
 import {
   EvolutionExecutionAtomicStore,
   type EvolutionExecutionRuntimeContext,
+  type EvolutionAtomicStoreSnapshot,
 } from "./EvolutionExecutionAtomicStore";
+
+import type {
+  EvolutionExecutionSaveService,
+} from "./EvolutionExecutionSaveService";
 
 const profile: CreatureProfile = {
   id: "CR-001",
@@ -77,12 +81,7 @@ const runtimeContext: EvolutionExecutionRuntimeContext = {
 const planningContext = {
   level: 15,
   cultivationRealm: "NGUYEN_TO_CANH" as const,
-  inventory: [
-    {
-      itemId: "ITEM-001",
-      quantity: 5,
-    },
-  ],
+  inventory: [{ itemId: "ITEM-001", quantity: 5 }],
   completedQuestIds: ["QUEST-001"],
   affinities: [],
 };
@@ -111,17 +110,40 @@ function makePlan(): EvolutionExecutionTransactionPlan {
 
 function makeStore(
   quantity = 5,
+  saveService?: EvolutionExecutionSaveService,
 ): EvolutionExecutionAtomicStore {
   return new EvolutionExecutionAtomicStore(
     new SpeciesCatalogue(species),
     [profile],
-    [
-      {
-        itemId: "ITEM-001",
-        quantity,
-      },
-    ],
+    [{ itemId: "ITEM-001", quantity }],
+    saveService,
   );
+}
+
+class MemoryPersistence {
+  snapshot: EvolutionAtomicStoreSnapshot | null = null;
+  shouldFailSave = false;
+  loadIssues: { code: string; path: string; message: string }[] = [];
+
+  load() {
+    return {
+      found: this.snapshot !== null,
+      snapshot: this.snapshot,
+      issues: this.loadIssues,
+    };
+  }
+
+  save(snapshot: EvolutionAtomicStoreSnapshot) {
+    if (this.shouldFailSave) {
+      throw new Error("Simulated storage write failure");
+    }
+
+    this.snapshot = snapshot;
+  }
+
+  asService(): EvolutionExecutionSaveService {
+    return this as unknown as EvolutionExecutionSaveService;
+  }
 }
 
 describe("EvolutionExecutionAtomicStore", () => {
@@ -145,10 +167,7 @@ describe("EvolutionExecutionAtomicStore", () => {
     });
 
     expect(result.inventory).toEqual([
-      {
-        itemId: "ITEM-001",
-        quantity: 3,
-      },
+      { itemId: "ITEM-001", quantity: 3 },
     ]);
 
     expect(result.stateRevision).toBe(2);
@@ -165,12 +184,7 @@ describe("EvolutionExecutionAtomicStore", () => {
     const store = makeStore();
     const plan = makePlan();
 
-    store.execute(
-      plan,
-      "2026-11-26T12:00:00.000Z",
-      runtimeContext,
-    );
-
+    store.execute(plan, "2026-11-26T12:00:00.000Z", runtimeContext);
     const before = store.snapshot();
 
     const result = store.execute(
@@ -179,16 +193,12 @@ describe("EvolutionExecutionAtomicStore", () => {
       runtimeContext,
     );
 
-    expect(result.decision).toBe(
-      "REJECTED_DUPLICATE_REQUEST",
-    );
-
+    expect(result.decision).toBe("REJECTED_DUPLICATE_REQUEST");
     expect(store.snapshot()).toEqual(before);
   });
 
   it("rejects stale profile versions without consuming inventory", () => {
     const store = makeStore();
-
     const plan = {
       ...makePlan(),
       profileVersion: 2,
@@ -206,13 +216,11 @@ describe("EvolutionExecutionAtomicStore", () => {
     expect(result.decision).toBe(
       "REJECTED_PROFILE_VERSION_CONFLICT",
     );
-
     expect(store.snapshot()).toEqual(before);
   });
 
   it("rejects source species conflicts without changing state", () => {
     const store = makeStore();
-
     const plan = {
       ...makePlan(),
       sourceSpeciesId: "SP-002",
@@ -229,13 +237,11 @@ describe("EvolutionExecutionAtomicStore", () => {
     expect(result.decision).toBe(
       "REJECTED_SOURCE_SPECIES_CONFLICT",
     );
-
     expect(store.snapshot()).toEqual(before);
   });
 
   it("rejects branch target mismatches without changing state", () => {
     const store = makeStore();
-
     const plan = {
       ...makePlan(),
       targetSpeciesId: "SP-001",
@@ -249,10 +255,7 @@ describe("EvolutionExecutionAtomicStore", () => {
       runtimeContext,
     );
 
-    expect(result.decision).toBe(
-      "REJECTED_BRANCH_CONFLICT",
-    );
-
+    expect(result.decision).toBe("REJECTED_BRANCH_CONFLICT");
     expect(store.snapshot()).toEqual(before);
   });
 
@@ -263,16 +266,12 @@ describe("EvolutionExecutionAtomicStore", () => {
     const result = store.execute(
       makePlan(),
       "2026-11-26T12:00:00.000Z",
-      {
-        ...runtimeContext,
-        level: 1,
-      },
+      { ...runtimeContext, level: 1 },
     );
 
     expect(result.decision).toBe(
       "REJECTED_REQUIREMENTS_NOT_MET",
     );
-
     expect(store.snapshot()).toEqual(before);
   });
 
@@ -289,10 +288,7 @@ describe("EvolutionExecutionAtomicStore", () => {
       },
     );
 
-    expect(result.decision).toBe(
-      "REJECTED_INVALID_CONTEXT",
-    );
-
+    expect(result.decision).toBe("REJECTED_INVALID_CONTEXT");
     expect(store.snapshot()).toEqual(before);
   });
 
@@ -306,10 +302,7 @@ describe("EvolutionExecutionAtomicStore", () => {
       runtimeContext,
     );
 
-    expect(result.decision).toBe(
-      "REJECTED_INVALID_PLAN",
-    );
-
+    expect(result.decision).toBe("REJECTED_INVALID_PLAN");
     expect(store.snapshot()).toEqual(before);
   });
 
@@ -318,18 +311,12 @@ describe("EvolutionExecutionAtomicStore", () => {
     const before = store.snapshot();
 
     const result = store.execute(
-      {
-        ...makePlan(),
-        requestId: "bad request",
-      },
+      { ...makePlan(), requestId: "bad request" },
       "2026-11-26T12:00:00.000Z",
       runtimeContext,
     );
 
-    expect(result.decision).toBe(
-      "REJECTED_INVALID_PLAN",
-    );
-
+    expect(result.decision).toBe("REJECTED_INVALID_PLAN");
     expect(store.snapshot()).toEqual(before);
   });
 
@@ -346,13 +333,11 @@ describe("EvolutionExecutionAtomicStore", () => {
     expect(result.decision).toBe(
       "REJECTED_REQUIREMENTS_NOT_MET",
     );
-
     expect(store.snapshot()).toEqual(before);
   });
 
   it("returns immutable snapshots and profiles", () => {
     const store = makeStore();
-
     const snapshot = store.snapshot();
     const storedProfile = store.getProfile("CR-001");
 
@@ -383,15 +368,8 @@ describe("EvolutionExecutionAtomicStore", () => {
       () =>
         new EvolutionExecutionAtomicStore(
           new SpeciesCatalogue(species),
-          [
-            {
-              ...profile,
-              speciesId: "SP-999",
-            },
-          ],
-          [
-            { itemId: "ITEM-001", quantity: 5 },
-          ],
+          [{ ...profile, speciesId: "SP-999" }],
+          [{ itemId: "ITEM-001", quantity: 5 }],
         ),
     ).toThrow(/UNKNOWN_SPECIES_REFERENCE/);
   });
@@ -413,5 +391,106 @@ describe("EvolutionExecutionAtomicStore", () => {
     expect(JSON.stringify(plan)).toBe(planBefore);
     expect(JSON.stringify(profile)).toBe(profileBefore);
     expect(JSON.stringify(runtimeContext)).toBe(contextBefore);
+  });
+
+  it("restores profiles and ITEM inventory from persisted snapshot", () => {
+    const persistence = new MemoryPersistence();
+    const firstStore = makeStore(5, persistence.asService());
+
+    firstStore.execute(
+      makePlan(),
+      "2026-11-26T12:00:00.000Z",
+      runtimeContext,
+    );
+
+    const restoredStore = makeStore(
+      99,
+      persistence.asService(),
+    );
+
+    expect(restoredStore.snapshot()).toEqual(firstStore.snapshot());
+    expect(restoredStore.getProfile("CR-001")?.speciesId).toBe("SP-002");
+    expect(restoredStore.getInventory()).toEqual([
+      { itemId: "ITEM-001", quantity: 3 },
+    ]);
+  });
+
+  it("restores processed request IDs and prevents duplicate execution after reload", () => {
+    const persistence = new MemoryPersistence();
+    const firstStore = makeStore(5, persistence.asService());
+
+    firstStore.execute(
+      makePlan(),
+      "2026-11-26T12:00:00.000Z",
+      runtimeContext,
+    );
+
+    const restoredStore = makeStore(
+      5,
+      persistence.asService(),
+    );
+
+    const result = restoredStore.execute(
+      makePlan(),
+      "2026-11-26T12:10:00.000Z",
+      runtimeContext,
+    );
+
+    expect(result.decision).toBe("REJECTED_DUPLICATE_REQUEST");
+    expect(restoredStore.snapshot().processedRequestIds).toEqual([
+      "REQ-001",
+    ]);
+  });
+
+  it("does not publish in-memory state when persistence write fails", () => {
+    const persistence = new MemoryPersistence();
+    persistence.shouldFailSave = true;
+
+    const store = makeStore(5, persistence.asService());
+    const before = store.snapshot();
+
+    const result = store.execute(
+      makePlan(),
+      "2026-11-26T12:00:00.000Z",
+      runtimeContext,
+    );
+
+    expect(result.decision).toBe("REJECTED_PERSISTENCE_FAILURE");
+    expect(result.executed).toBe(false);
+    expect(store.snapshot()).toEqual(before);
+    expect(store.getProfile("CR-001")?.speciesId).toBe("SP-001");
+    expect(store.getInventory()).toEqual([
+      { itemId: "ITEM-001", quantity: 5 },
+    ]);
+  });
+
+  it("rejects persisted snapshots with load errors instead of silently resetting", () => {
+    const persistence = new MemoryPersistence();
+    persistence.loadIssues = [
+      {
+        code: "SAVE_READ_FAILED",
+        path: "storage",
+        message: "Storage read failed.",
+      },
+    ];
+
+    expect(
+      () => makeStore(5, persistence.asService()),
+    ).toThrow(/SAVE_READ_FAILED/);
+  });
+
+  it("rejects corrupted persisted snapshot data", () => {
+    const persistence = new MemoryPersistence();
+
+    persistence.snapshot = {
+      revision: -1,
+      profiles: [],
+      inventory: [],
+      processedRequestIds: [],
+    };
+
+    expect(
+      () => makeStore(5, persistence.asService()),
+    ).toThrow(/Persisted evolution snapshot is invalid/);
   });
 });
