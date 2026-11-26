@@ -1,4 +1,3 @@
-
 import {
   EVOLUTION_STAGES,
   validateCreatureProfile,
@@ -17,6 +16,9 @@ import {
   type EvolutionInventoryEntry,
   type EvolutionRequirementEvaluation,
 } from "./EvolutionRequirementEvaluator";
+import type {
+  EvolutionExecutionSaveService,
+} from "./EvolutionExecutionSaveService";
 
 export interface EvolutionExecutionRuntimeContext {
   readonly level: number;
@@ -36,7 +38,8 @@ export type EvolutionAtomicExecutionDecision =
   | "REJECTED_REQUIREMENTS_NOT_MET"
   | "REJECTED_INSUFFICIENT_INVENTORY"
   | "REJECTED_MAX_EVOLUTION_STAGE"
-  | "REJECTED_DUPLICATE_REQUEST";
+  | "REJECTED_DUPLICATE_REQUEST"
+  | "REJECTED_PERSISTENCE_FAILURE";
 
 export interface EvolutionAtomicExecutionResult {
   readonly decision: EvolutionAtomicExecutionDecision;
@@ -78,19 +81,13 @@ function freezeProfile(
   return Object.freeze({
     ...profile,
     talents: Object.freeze(
-      profile.talents.map((entry) =>
-        Object.freeze({ ...entry }),
-      ),
+      profile.talents.map((entry) => Object.freeze({ ...entry })),
     ),
     affinities: Object.freeze(
-      profile.affinities.map((entry) =>
-        Object.freeze({ ...entry }),
-      ),
+      profile.affinities.map((entry) => Object.freeze({ ...entry })),
     ),
     abilities: Object.freeze(
-      profile.abilities.map((entry) =>
-        Object.freeze({ ...entry }),
-      ),
+      profile.abilities.map((entry) => Object.freeze({ ...entry })),
     ),
   });
 }
@@ -100,9 +97,7 @@ function freezeInventory(
 ): readonly EvolutionInventoryEntry[] {
   return Object.freeze(
     [...inventory.entries()]
-      .sort(([left], [right]) =>
-        left.localeCompare(right),
-      )
+      .sort(([left], [right]) => left.localeCompare(right))
       .map(([itemId, quantity]) =>
         Object.freeze({ itemId, quantity }),
       ),
@@ -169,10 +164,7 @@ function buildItemCosts(
     const itemId = match[1];
     const quantity = Number(match[2]);
 
-    if (
-      !Number.isSafeInteger(quantity) ||
-      quantity < 1
-    ) {
+    if (!Number.isSafeInteger(quantity) || quantity < 1) {
       return null;
     }
 
@@ -187,9 +179,7 @@ function buildItemCosts(
 
   return Object.freeze(
     [...totals.entries()]
-      .sort(([left], [right]) =>
-        left.localeCompare(right),
-      )
+      .sort(([left], [right]) => left.localeCompare(right))
       .map(([itemId, quantity]) =>
         Object.freeze({ itemId, quantity }),
       ),
@@ -218,18 +208,6 @@ function sameCosts(
   });
 }
 
-/**
- * In-memory atomic evolution store.
- *
- * Re-evaluates the selected branch requirements against current
- * inventory and caller-provided runtime progression data.
- *
- * Profile, inventory and processed request IDs are published
- * together through one state-reference assignment.
- *
- * This is an in-memory, single-process guarantee only.
- * It is not durable storage or a distributed transaction.
- */
 export class EvolutionExecutionAtomicStore {
   private state: AtomicState;
 
@@ -237,7 +215,30 @@ export class EvolutionExecutionAtomicStore {
     private readonly speciesCatalogue: SpeciesCatalogue,
     profiles: readonly CreatureProfile[],
     inventory: readonly EvolutionInventoryEntry[],
+    private readonly saveService?: EvolutionExecutionSaveService,
   ) {
+    const loaded = this.saveService?.load();
+
+    if (loaded?.issues.length) {
+      throw new Error(
+        `Evolution persistence load failed: ${loaded.issues
+          .map((entry) => entry.code)
+          .join(", ")}`,
+      );
+    }
+
+    if (loaded?.found && loaded.snapshot) {
+      this.state = this.restoreSnapshot(loaded.snapshot);
+      return;
+    }
+
+    this.state = this.createInitialState(profiles, inventory);
+  }
+
+  private createInitialState(
+    profiles: readonly CreatureProfile[],
+    inventory: readonly EvolutionInventoryEntry[],
+  ): AtomicState {
     const profileMap = new Map<string, CreatureProfile>();
     const inventoryMap = new Map<string, number>();
     const issues: ContractIssue[] = [];
@@ -258,22 +259,16 @@ export class EvolutionExecutionAtomicStore {
         continue;
       }
 
-      const profileValidation =
-        validateCreatureProfile(profile);
-
-      const referenceValidation =
-        validateSpeciesReferences(
-          profile,
-          speciesCatalogue.getAll(),
-        );
+      const profileValidation = validateCreatureProfile(profile);
+      const referenceValidation = validateSpeciesReferences(
+        profile,
+        this.speciesCatalogue.getAll(),
+      );
 
       issues.push(...profileValidation.issues);
       issues.push(...referenceValidation.issues);
 
-      if (
-        profileValidation.valid &&
-        referenceValidation.valid
-      ) {
+      if (profileValidation.valid && referenceValidation.valid) {
         profileMap.set(profile.id, freezeProfile(profile));
       }
     }
@@ -318,7 +313,7 @@ export class EvolutionExecutionAtomicStore {
       );
     }
 
-    this.state = Object.freeze({
+    return Object.freeze({
       revision: 1,
       profiles: profileMap,
       inventory: inventoryMap,
@@ -326,9 +321,48 @@ export class EvolutionExecutionAtomicStore {
     });
   }
 
-  getProfile(
-    creatureId: string,
-  ): CreatureProfile | undefined {
+  private restoreSnapshot(
+    snapshot: EvolutionAtomicStoreSnapshot,
+  ): AtomicState {
+    if (
+      !snapshot ||
+      !Number.isSafeInteger(snapshot.revision) ||
+      snapshot.revision < 1 ||
+      !Array.isArray(snapshot.profiles) ||
+      !Array.isArray(snapshot.inventory) ||
+      !Array.isArray(snapshot.processedRequestIds)
+    ) {
+      throw new Error("Persisted evolution snapshot is invalid.");
+    }
+
+    const restored = this.createInitialState(
+      snapshot.profiles,
+      snapshot.inventory,
+    );
+
+    const requestIds = new Set<string>();
+
+    for (const requestId of snapshot.processedRequestIds) {
+      if (
+        typeof requestId !== "string" ||
+        !ID_PATTERN.test(requestId) ||
+        requestIds.has(requestId)
+      ) {
+        throw new Error("Persisted processed request IDs are invalid.");
+      }
+
+      requestIds.add(requestId);
+    }
+
+    return Object.freeze({
+      revision: snapshot.revision,
+      profiles: restored.profiles,
+      inventory: restored.inventory,
+      processedRequestIds: requestIds,
+    });
+  }
+
+  getProfile(creatureId: string): CreatureProfile | undefined {
     return this.state.profiles.get(creatureId);
   }
 
@@ -343,9 +377,7 @@ export class EvolutionExecutionAtomicStore {
   snapshot(): EvolutionAtomicStoreSnapshot {
     return Object.freeze({
       revision: this.state.revision,
-      profiles: Object.freeze([
-        ...this.state.profiles.values(),
-      ]),
+      profiles: Object.freeze([...this.state.profiles.values()]),
       inventory: freezeInventory(this.state.inventory),
       processedRequestIds: Object.freeze(
         [...this.state.processedRequestIds].sort(),
@@ -361,9 +393,7 @@ export class EvolutionExecutionAtomicStore {
     const currentState = this.state;
 
     const requestId =
-      typeof plan?.requestId === "string"
-        ? plan.requestId
-        : null;
+      typeof plan?.requestId === "string" ? plan.requestId : null;
 
     const reject = (
       decision: EvolutionAtomicExecutionDecision,
@@ -418,9 +448,7 @@ export class EvolutionExecutionAtomicStore {
       );
     }
 
-    const currentProfile = currentState.profiles.get(
-      plan.creatureId,
-    );
+    const currentProfile = currentState.profiles.get(plan.creatureId);
 
     if (!currentProfile) {
       return reject(
@@ -505,9 +533,7 @@ export class EvolutionExecutionAtomicStore {
       );
     }
 
-    const currentInventory = freezeInventory(
-      currentState.inventory,
-    );
+    const currentInventory = freezeInventory(currentState.inventory);
 
     const evaluation = evaluateEvolutionRequirements(
       branch.requirements,
@@ -539,12 +565,7 @@ export class EvolutionExecutionAtomicStore {
       );
     }
 
-    if (
-      !sameEvaluations(
-        plan.evaluations,
-        evaluation.evaluations,
-      )
-    ) {
+    if (!sameEvaluations(plan.evaluations, evaluation.evaluations)) {
       return reject(
         "REJECTED_INVALID_PLAN",
         "PLAN_EVALUATION_MISMATCH",
@@ -553,9 +574,7 @@ export class EvolutionExecutionAtomicStore {
       );
     }
 
-    const expectedCosts = buildItemCosts(
-      evaluation.evaluations,
-    );
+    const expectedCosts = buildItemCosts(evaluation.evaluations);
 
     if (
       expectedCosts === null ||
@@ -570,9 +589,7 @@ export class EvolutionExecutionAtomicStore {
     }
 
     const nextStageIndex =
-      EVOLUTION_STAGES.indexOf(
-        currentProfile.evolutionStage,
-      ) + 1;
+      EVOLUTION_STAGES.indexOf(currentProfile.evolutionStage) + 1;
 
     if (
       nextStageIndex <= 0 ||
@@ -600,10 +617,7 @@ export class EvolutionExecutionAtomicStore {
         );
       }
 
-      nextInventory.set(
-        cost.itemId,
-        available - cost.quantity,
-      );
+      nextInventory.set(cost.itemId, available - cost.quantity);
     }
 
     if (!Number.isSafeInteger(currentProfile.version + 1)) {
@@ -638,7 +652,27 @@ export class EvolutionExecutionAtomicStore {
       processedRequestIds: nextProcessedRequestIds,
     });
 
-    // Single publication point: no partial state is exposed.
+    if (this.saveService) {
+      try {
+        this.saveService.save({
+          revision: nextState.revision,
+          profiles: Object.freeze([...nextState.profiles.values()]),
+          inventory: freezeInventory(nextState.inventory),
+          processedRequestIds: Object.freeze(
+            [...nextState.processedRequestIds].sort(),
+          ),
+        });
+      } catch {
+        return reject(
+          "REJECTED_PERSISTENCE_FAILURE",
+          "EVOLUTION_PERSISTENCE_WRITE_FAILED",
+          "persistence",
+          "Evolution state could not be saved; in-memory state was not changed.",
+        );
+      }
+    }
+
+    // Publish only after durable persistence succeeds.
     this.state = nextState;
 
     return makeResult({
