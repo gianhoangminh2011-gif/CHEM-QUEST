@@ -68,10 +68,6 @@ function isRecord(
   );
 }
 
-function isValidId(value: string): boolean {
-  return /^[A-Z0-9][A-Z0-9_-]{2,63}$/.test(value);
-}
-
 function parsePositiveInteger(
   value: string,
 ): number | undefined {
@@ -274,7 +270,6 @@ function parseRequirement(
 /**
  * Validates evolution requirements for every Species branch.
  *
- * This function:
  * - Validates requirement syntax and values.
  * - Detects duplicate requirements within a branch.
  * - Reports precise source paths.
