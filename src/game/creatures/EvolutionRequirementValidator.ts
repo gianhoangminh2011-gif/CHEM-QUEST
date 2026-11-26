@@ -189,7 +189,7 @@ function parseRequirement(
   }
 
   const questMatch = input.match(
-    /^QUEST:([A-Z0-9][A-Z0-9_-]{2,63})\s*=\s*([A-Z]+)$/,
+    /^QUEST:([A-Z0-9][A-Z0-9_-]{2,63})\s*=\s*([A-Z_]+)$/,
   );
 
   if (questMatch) {
