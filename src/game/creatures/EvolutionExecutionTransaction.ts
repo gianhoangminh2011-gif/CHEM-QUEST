@@ -1,3 +1,4 @@
+
 import {
   type ContractIssue,
   type CreatureProfile,
@@ -61,14 +62,12 @@ function makeIssue(
   return Object.freeze({ code, path, message });
 }
 
-function makeResult(
-  input: {
-    decision: EvolutionExecutionTransactionDecision;
-    coordinatorResult: EvolutionExecutionCoordinatorResult;
-    plan?: EvolutionExecutionTransactionPlan | null;
-    issues?: readonly ContractIssue[];
-  },
-): EvolutionExecutionTransactionResult {
+function makeResult(input: {
+  decision: EvolutionExecutionTransactionDecision;
+  coordinatorResult: EvolutionExecutionCoordinatorResult;
+  plan?: EvolutionExecutionTransactionPlan | null;
+  issues?: readonly ContractIssue[];
+}): EvolutionExecutionTransactionResult {
   return Object.freeze({
     decision: input.decision,
     transactionPlanned:
@@ -103,7 +102,7 @@ function mapCoordinatorDecision(
 
 function buildItemCosts(
   evaluations: readonly EvolutionRequirementEvaluation[],
-): readonly EvolutionItemCost[] {
+): readonly EvolutionItemCost[] | null {
   const quantities = new Map<string, number>();
 
   for (const evaluation of evaluations) {
@@ -116,12 +115,22 @@ function buildItemCosts(
     );
 
     if (!match) {
-      continue;
+      return null;
     }
 
     const itemId = match[1];
     const quantity = Number(match[2]);
-    const total = (quantities.get(itemId) ?? 0) + quantity;
+
+    if (!Number.isSafeInteger(quantity) || quantity < 1) {
+      return null;
+    }
+
+    const total =
+      (quantities.get(itemId) ?? 0) + quantity;
+
+    if (!Number.isSafeInteger(total) || total < 1) {
+      return null;
+    }
 
     quantities.set(itemId, total);
   }
@@ -139,12 +148,13 @@ function buildItemCosts(
  * Builds an immutable, read-only evolution transaction plan.
  *
  * This module:
- * - Re-runs the execution coordinator against the supplied snapshots.
- * - Requires the caller's expected profile version to match.
- * - Resolves the source Species, target Species, and evolution branch.
+ * - Re-runs the execution coordinator.
+ * - Checks the expected Creature Profile version.
+ * - Resolves source Species, target Species, and branch.
  * - Converts ITEM requirements into planned item costs.
- * - Rejects insufficient aggregate item quantities.
- * - Never creates a partial plan.
+ * - Rejects unsafe aggregate item quantities.
+ * - Rejects insufficient item quantities.
+ * - Never creates a partial transaction plan.
  *
  * This module does NOT:
  * - Consume inventory.
@@ -156,13 +166,14 @@ function buildItemCosts(
 export function createEvolutionExecutionTransaction(
   input: EvolutionExecutionTransactionInput,
 ): EvolutionExecutionTransactionResult {
-  const invalidCoordinatorResult = coordinateEvolutionExecution({
-    requestId: "",
-    profile: null,
-    species: null,
-    branchId: "",
-    evaluationContext: null,
-  });
+  const invalidCoordinatorResult =
+    coordinateEvolutionExecution({
+      requestId: "",
+      profile: null,
+      species: null,
+      branchId: "",
+      evaluationContext: null,
+    });
 
   if (
     typeof input !== "object" ||
@@ -185,9 +196,8 @@ export function createEvolutionExecutionTransaction(
     });
   }
 
-  const coordinatorResult = coordinateEvolutionExecution(
-    input.coordinatorInput,
-  );
+  const coordinatorResult =
+    coordinateEvolutionExecution(input.coordinatorInput);
 
   if (
     coordinatorResult.decision !== "READY_FOR_EXECUTION" ||
@@ -202,29 +212,33 @@ export function createEvolutionExecutionTransaction(
     });
   }
 
-  const profile = input.coordinatorInput.profile as CreatureProfile;
+  const profile =
+    input.coordinatorInput.profile as CreatureProfile;
 
   if (profile.version !== input.expectedProfileVersion) {
-    const issue = makeIssue(
-      "PROFILE_VERSION_MISMATCH",
-      "expectedProfileVersion",
-      "Creature Profile version does not match the expected version.",
-    );
-
     return makeResult({
       decision: "REJECTED_PROFILE_VERSION_MISMATCH",
       coordinatorResult,
-      issues: [issue],
+      issues: [
+        makeIssue(
+          "PROFILE_VERSION_MISMATCH",
+          "expectedProfileVersion",
+          "Creature Profile version does not match the expected version.",
+        ),
+      ],
     });
   }
 
-  const species = input.coordinatorInput.species as SpeciesDefinition[];
+  const species =
+    input.coordinatorInput.species as SpeciesDefinition[];
+
   const sourceSpecies = species.find(
     (entry) => entry.id === profile.speciesId,
   );
 
   const branch = sourceSpecies?.evolutionBranches.find(
-    (entry) => entry.id === input.coordinatorInput.branchId,
+    (entry) =>
+      entry.id === input.coordinatorInput.branchId,
   );
 
   const targetSpecies = branch
@@ -234,16 +248,16 @@ export function createEvolutionExecutionTransaction(
     : undefined;
 
   if (!sourceSpecies || !branch || !targetSpecies) {
-    const issue = makeIssue(
-      "TRANSACTION_TARGET_RESOLUTION_FAILED",
-      "branchId",
-      "Source Species, evolution branch, or target Species could not be resolved.",
-    );
-
     return makeResult({
       decision: "REJECTED_NOT_READY",
       coordinatorResult,
-      issues: [issue],
+      issues: [
+        makeIssue(
+          "TRANSACTION_TARGET_RESOLUTION_FAILED",
+          "branchId",
+          "Source Species, evolution branch, or target Species could not be resolved.",
+        ),
+      ],
     });
   }
 
@@ -251,8 +265,23 @@ export function createEvolutionExecutionTransaction(
     coordinatorResult.evaluations,
   );
 
-  const context = input.coordinatorInput
-    .evaluationContext as EvolutionRequirementEvaluationContext;
+  if (itemCosts === null) {
+    return makeResult({
+      decision: "REJECTED_INVALID_REQUEST",
+      coordinatorResult,
+      issues: [
+        makeIssue(
+          "INVALID_AGGREGATE_ITEM_COST",
+          "evaluations",
+          "An item requirement is malformed or its aggregated quantity exceeds the supported safe integer range.",
+        ),
+      ],
+    });
+  }
+
+  const context =
+    input.coordinatorInput
+      .evaluationContext as EvolutionRequirementEvaluationContext;
 
   const inventory = new Map(
     context.inventory.map((entry) => [
@@ -263,7 +292,7 @@ export function createEvolutionExecutionTransaction(
 
   const costIssues: ContractIssue[] = [];
 
-  itemCosts.forEach((cost) => {
+  for (const cost of itemCosts) {
     const available = inventory.get(cost.itemId) ?? 0;
 
     if (available < cost.quantity) {
@@ -275,7 +304,7 @@ export function createEvolutionExecutionTransaction(
         ),
       );
     }
-  });
+  }
 
   if (costIssues.length > 0) {
     return makeResult({
