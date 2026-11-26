@@ -1,3 +1,4 @@
+
 import { describe, expect, it } from "vitest";
 
 import type {
@@ -306,6 +307,57 @@ describe("createEvolutionExecutionTransaction", () => {
 
     expect(result.transactionPlanned).toBe(false);
     expect(result.plan).toBeNull();
+  });
+
+  it("rejects aggregate item cost exceeding MAX_SAFE_INTEGER", () => {
+    const maxSafeInteger = Number.MAX_SAFE_INTEGER;
+
+    const customSpecies: SpeciesDefinition[] = [
+      {
+        ...sourceSpecies,
+        evolutionBranches: [
+          {
+            id: "BR-0001",
+            targetSpeciesId: "SP-0002",
+            requirements: [
+              "LEVEL>=10",
+              `ITEM:ITEM-001>=${maxSafeInteger}`,
+              `ITEM:ITEM-001>=${maxSafeInteger - 1}`,
+            ],
+          },
+        ],
+      },
+      targetSpecies,
+    ];
+
+    const result = createEvolutionExecutionTransaction(
+      makeInput({
+        coordinatorInput: {
+          ...makeInput().coordinatorInput,
+          species: customSpecies,
+          evaluationContext: {
+            ...evaluationContext,
+            inventory: [
+              {
+                itemId: "ITEM-001",
+                quantity: maxSafeInteger,
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(result.decision).toBe("REJECTED_INVALID_REQUEST");
+    expect(result.transactionPlanned).toBe(false);
+    expect(result.plan).toBeNull();
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "INVALID_AGGREGATE_ITEM_COST",
+        }),
+      ]),
+    );
   });
 
   it("does not mutate profile, species, context, or processed IDs", () => {
