@@ -1,3 +1,4 @@
+
 import { describe, expect, it } from "vitest";
 
 import type {
@@ -7,6 +8,7 @@ import type {
 
 import {
   coordinateEvolutionExecution,
+  type EvolutionExecutionCoordinatorInput,
 } from "./EvolutionExecutionCoordinator";
 
 const profile: CreatureProfile = {
@@ -70,8 +72,8 @@ const evaluationContext = {
 };
 
 function makeInput(
-  overrides: Record<string, unknown> = {},
-) {
+  overrides: Partial<EvolutionExecutionCoordinatorInput> = {},
+): EvolutionExecutionCoordinatorInput {
   return {
     requestId: "REQ-0001",
     profile,
