@@ -227,8 +227,9 @@ export class EvolutionExecutionAtomicStore {
       );
     }
 
-    if (loaded?.found && loaded.snapshot) {
-      this.state = this.restoreSnapshot(loaded.snapshot);
+    // FIX: load() returns record.snapshot, not loaded.snapshot.
+    if (loaded?.found && loaded.record) {
+      this.state = this.restoreSnapshot(loaded.record.snapshot);
       return;
     }
 
