@@ -84,7 +84,7 @@ function makeService(storage = new MemoryStorage()) {
 
 describe("EvolutionExecutionSaveService", () => {
   it("saves and restores a complete snapshot", () => {
-    const { storage, service } = makeService();
+    const { service } = makeService();
 
     service.save(makeSnapshot());
 
