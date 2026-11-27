@@ -1,4 +1,5 @@
 import { PERIODIC_TABLE_DATA } from "./PeriodicTableData";
+import type { ChemicalElement } from "./ChemicalElement";
 
 export type FormulaIssueCode =
   | "EMPTY_FORMULA"
@@ -9,7 +10,8 @@ export type FormulaIssueCode =
   | "INVALID_SUBSCRIPT"
   | "UNMATCHED_PARENTHESES"
   | "EMPTY_GROUP"
-  | "UNSAFE_COUNT";
+  | "UNSAFE_COUNT"
+  | "ATOM_LIMIT_EXCEEDED";
 
 export interface FormulaIssue {
   code: FormulaIssueCode;
@@ -34,10 +36,13 @@ interface FormulaParserState {
   position: number;
 }
 
+type MergeResult = "OK" | "UNSAFE" | "LIMIT";
+
 const MAX_FORMULA_LENGTH = 256;
 const MAX_NESTING_DEPTH = 32;
+const MAX_TOTAL_ATOMS = 5000;
 
-const ELEMENTS_BY_SYMBOL = new Map(
+const ELEMENTS_BY_SYMBOL = new Map<string, ChemicalElement>(
   PERIODIC_TABLE_DATA.map((element) => [
     element.symbol,
     element,
@@ -78,15 +83,27 @@ function createParseResult(
 }
 
 function isDigit(character: string | undefined): boolean {
-  return character !== undefined && character >= "0" && character <= "9";
+  return (
+    character !== undefined &&
+    character >= "0" &&
+    character <= "9"
+  );
 }
 
 function isUppercase(character: string | undefined): boolean {
-  return character !== undefined && character >= "A" && character <= "Z";
+  return (
+    character !== undefined &&
+    character >= "A" &&
+    character <= "Z"
+  );
 }
 
 function isLowercase(character: string | undefined): boolean {
-  return character !== undefined && character >= "a" && character <= "z";
+  return (
+    character !== undefined &&
+    character >= "a" &&
+    character <= "z"
+  );
 }
 
 function getMaximumNestingDepth(formula: string): number {
@@ -96,7 +113,10 @@ function getMaximumNestingDepth(formula: string): number {
   for (const character of formula) {
     if (character === "(") {
       currentDepth += 1;
-      maximumDepth = Math.max(maximumDepth, currentDepth);
+      maximumDepth = Math.max(
+        maximumDepth,
+        currentDepth,
+      );
     } else if (character === ")") {
       currentDepth = Math.max(0, currentDepth - 1);
     }
@@ -105,25 +125,83 @@ function getMaximumNestingDepth(formula: string): number {
   return maximumDepth;
 }
 
-function addCounts(
-  target: Map<string, number>,
-  source: Map<string, number>,
-  multiplier: number,
-): boolean {
-  for (const [symbol, count] of source) {
-    const nextCount =
-      (target.get(symbol) ?? 0) + count * multiplier;
+function getTotalAtoms(
+  composition: ReadonlyMap<string, number>,
+): number {
+  let total = 0;
 
-    if (!Number.isSafeInteger(nextCount) || nextCount <= 0) {
-      return false;
+  for (const count of composition.values()) {
+    total += count;
+
+    if (!Number.isSafeInteger(total)) {
+      return Number.POSITIVE_INFINITY;
     }
-
-    target.set(symbol, nextCount);
   }
 
-  return true;
+  return total;
 }
 
+/**
+ * Merges source counts into target.
+ *
+ * The target is changed only after all values have passed validation.
+ */
+function mergeCounts(
+  target: Map<string, number>,
+  source: ReadonlyMap<string, number>,
+  multiplier: number,
+): MergeResult {
+  if (
+    !Number.isSafeInteger(multiplier) ||
+    multiplier <= 0
+  ) {
+    return "UNSAFE";
+  }
+
+  const updates: Array<[string, number]> = [];
+  let totalAtoms = getTotalAtoms(target);
+
+  for (const [symbol, count] of source) {
+    const increment = count * multiplier;
+    const nextCount =
+      (target.get(symbol) ?? 0) + increment;
+
+    if (
+      !Number.isSafeInteger(increment) ||
+      !Number.isSafeInteger(nextCount) ||
+      increment <= 0 ||
+      nextCount <= 0
+    ) {
+      return "UNSAFE";
+    }
+
+    totalAtoms += increment;
+
+    if (
+      !Number.isSafeInteger(totalAtoms) ||
+      totalAtoms > MAX_TOTAL_ATOMS
+    ) {
+      return "LIMIT";
+    }
+
+    updates.push([symbol, nextCount]);
+  }
+
+  for (const [symbol, count] of updates) {
+    target.set(symbol, count);
+  }
+
+  return "OK";
+}
+
+/**
+ * Reads a positive integer at the current parser position.
+ *
+ * Returns:
+ * - 1 when no number is present;
+ * - the parsed positive integer when valid;
+ * - 0 when the supplied number is invalid.
+ */
 function parseNumber(
   formula: string,
   state: FormulaParserState,
@@ -138,7 +216,9 @@ function parseNumber(
     return 1;
   }
 
-  const value = Number(formula.slice(start, state.position));
+  const value = Number(
+    formula.slice(start, state.position),
+  );
 
   if (!Number.isSafeInteger(value) || value <= 0) {
     return 0;
@@ -147,29 +227,78 @@ function parseNumber(
   return value;
 }
 
-function parseGroup(
+function pushMergeIssue(
+  result: MergeResult,
+  issues: FormulaIssue[],
+  position: number,
+): void {
+  if (result === "LIMIT") {
+    issues.push(
+      createIssue(
+        "ATOM_LIMIT_EXCEEDED",
+        `A formula cannot contain more than ${MAX_TOTAL_ATOMS} atoms.`,
+        position,
+      ),
+    );
+    return;
+  }
+
+  if (result === "UNSAFE") {
+    issues.push(
+      createIssue(
+        "UNSAFE_COUNT",
+        "Element count exceeds the safe integer range.",
+        position,
+      ),
+    );
+  }
+}
+
+/**
+ * Parses one formula segment.
+ *
+ * A segment is the part between hydrate separators.
+ * Parenthesized groups are supported recursively.
+ */
+function parseSequence(
   formula: string,
   state: FormulaParserState,
   issues: FormulaIssue[],
+  segmentOffset: number,
+  stopAtClosingParenthesis: boolean,
 ): Map<string, number> {
   const composition = new Map<string, number>();
-  let hasContent = false;
 
   while (state.position < formula.length) {
     const character = formula[state.position];
 
     if (character === ")") {
-      break;
+      if (stopAtClosingParenthesis) {
+        break;
+      }
+
+      issues.push(
+        createIssue(
+          "UNMATCHED_PARENTHESES",
+          "Unexpected closing parenthesis.",
+          segmentOffset + state.position,
+        ),
+      );
+
+      return composition;
     }
 
     if (character === "(") {
       const groupStart = state.position;
+
       state.position += 1;
 
-      const nestedComposition = parseGroup(
+      const nestedComposition = parseSequence(
         formula,
         state,
         issues,
+        segmentOffset,
+        true,
       );
 
       if (formula[state.position] !== ")") {
@@ -177,9 +306,10 @@ function parseGroup(
           createIssue(
             "UNMATCHED_PARENTHESES",
             "Missing closing parenthesis.",
-            groupStart,
+            segmentOffset + groupStart,
           ),
         );
+
         return composition;
       }
 
@@ -190,9 +320,10 @@ function parseGroup(
           createIssue(
             "EMPTY_GROUP",
             "Formula groups cannot be empty.",
-            groupStart,
+            segmentOffset + groupStart,
           ),
         );
+
         return composition;
       }
 
@@ -203,24 +334,29 @@ function parseGroup(
           createIssue(
             "INVALID_SUBSCRIPT",
             "Subscripts must be positive integers.",
-            state.position,
+            segmentOffset + state.position,
           ),
         );
+
         return composition;
       }
 
-      if (!addCounts(composition, nestedComposition, multiplier)) {
-        issues.push(
-          createIssue(
-            "UNSAFE_COUNT",
-            "Element count exceeds the safe integer range.",
-            groupStart,
-          ),
+      const mergeResult = mergeCounts(
+        composition,
+        nestedComposition,
+        multiplier,
+      );
+
+      if (mergeResult !== "OK") {
+        pushMergeIssue(
+          mergeResult,
+          issues,
+          segmentOffset + groupStart,
         );
+
         return composition;
       }
 
-      hasContent = true;
       continue;
     }
 
@@ -229,9 +365,10 @@ function parseGroup(
         createIssue(
           "INVALID_TOKEN",
           `Unexpected character "${character}".`,
-          state.position,
+          segmentOffset + state.position,
         ),
       );
+
       return composition;
     }
 
@@ -252,9 +389,10 @@ function parseGroup(
         createIssue(
           "UNKNOWN_ELEMENT",
           `Unknown element symbol "${symbol}".`,
-          elementStart,
+          segmentOffset + elementStart,
         ),
       );
+
       return composition;
     }
 
@@ -265,42 +403,171 @@ function parseGroup(
         createIssue(
           "INVALID_SUBSCRIPT",
           "Subscripts must be positive integers.",
-          state.position,
+          segmentOffset + elementStart,
         ),
       );
+
       return composition;
     }
 
-    const nextCount = (composition.get(symbol) ?? 0) + count;
+    const elementCounts = new Map<string, number>([
+      [symbol, count],
+    ]);
 
-    if (!Number.isSafeInteger(nextCount) || nextCount <= 0) {
-      issues.push(
-        createIssue(
-          "UNSAFE_COUNT",
-          "Element count exceeds the safe integer range.",
-          elementStart,
-        ),
-      );
-      return composition;
-    }
-
-    composition.set(symbol, nextCount);
-    hasContent = true;
-  }
-
-  if (!hasContent && state.position === formula.length) {
-    issues.push(
-      createIssue(
-        "EMPTY_GROUP",
-        "Formula groups cannot be empty.",
-        state.position,
-      ),
+    const mergeResult = mergeCounts(
+      composition,
+      elementCounts,
+      1,
     );
+
+    if (mergeResult !== "OK") {
+      pushMergeIssue(
+        mergeResult,
+        issues,
+        segmentOffset + elementStart,
+      );
+
+      return composition;
+    }
   }
 
   return composition;
 }
 
+function parseFormulaSegment(
+  segment: string,
+  segmentOffset: number,
+  segmentIndex: number,
+  totalComposition: Map<string, number>,
+  issues: FormulaIssue[],
+): void {
+  if (segment.length === 0) {
+    issues.push(
+      createIssue(
+        "INVALID_TOKEN",
+        "Hydrate separators cannot create empty formula segments.",
+        segmentOffset,
+      ),
+    );
+
+    return;
+  }
+
+  const state: FormulaParserState = {
+    position: 0,
+  };
+
+  let segmentMultiplier = 1;
+
+  if (segmentIndex === 0 && isDigit(segment[0])) {
+    issues.push(
+      createIssue(
+        "INVALID_TOKEN",
+        "A formula cannot begin with a coefficient.",
+        segmentOffset,
+      ),
+    );
+
+    return;
+  }
+
+  if (segmentIndex > 0 && isDigit(segment[0])) {
+    segmentMultiplier = parseNumber(segment, state);
+
+    if (segmentMultiplier === 0) {
+      issues.push(
+        createIssue(
+          "INVALID_SUBSCRIPT",
+          "Hydrate coefficients must be positive integers.",
+          segmentOffset,
+        ),
+      );
+
+      return;
+    }
+
+    if (state.position >= segment.length) {
+      issues.push(
+        createIssue(
+          "INVALID_TOKEN",
+          "A hydrate coefficient must be followed by a formula.",
+          segmentOffset,
+        ),
+      );
+
+      return;
+    }
+  }
+
+  const segmentComposition = parseSequence(
+    segment,
+    state,
+    issues,
+    segmentOffset,
+    false,
+  );
+
+  if (state.position < segment.length && issues.length === 0) {
+    const character = segment[state.position];
+
+    issues.push(
+      createIssue(
+        character === ")"
+          ? "UNMATCHED_PARENTHESES"
+          : "INVALID_TOKEN",
+        character === ")"
+          ? "Unexpected closing parenthesis."
+          : `Unexpected character "${character}".`,
+        segmentOffset + state.position,
+      ),
+    );
+
+    return;
+  }
+
+  if (segmentComposition.size === 0 && issues.length === 0) {
+    issues.push(
+      createIssue(
+        "EMPTY_FORMULA",
+        "Formula segment must contain at least one element.",
+        segmentOffset,
+      ),
+    );
+
+    return;
+  }
+
+  if (issues.length > 0) {
+    return;
+  }
+
+  const mergeResult = mergeCounts(
+    totalComposition,
+    segmentComposition,
+    segmentMultiplier,
+  );
+
+  if (mergeResult !== "OK") {
+    pushMergeIssue(
+      mergeResult,
+      issues,
+      segmentOffset,
+    );
+  }
+}
+
+/**
+ * Parses chemical formulas, including:
+ *
+ * - Simple formulas: H2O, CO2, NaCl
+ * - Parenthesized groups: Ca(OH)2, Al2(SO4)3
+ * - Nested groups: K4(ON(SO3)2)2
+ * - Hydrates: CuSO4.5H2O
+ * - Hydrates using a middle dot: CuSO4·5H2O
+ *
+ * A coefficient is allowed only after a hydrate separator.
+ * For example, 2H2O is intentionally rejected.
+ */
 export function parseChemicalFormula(
   input: string,
 ): FormulaParseResult {
@@ -334,7 +601,10 @@ export function parseChemicalFormula(
     ]);
   }
 
-  if (getMaximumNestingDepth(formula) > MAX_NESTING_DEPTH) {
+  if (
+    getMaximumNestingDepth(formula) >
+    MAX_NESTING_DEPTH
+  ) {
     return createParseResult(formula, [], [
       createIssue(
         "NESTING_TOO_DEEP",
@@ -344,50 +614,64 @@ export function parseChemicalFormula(
   }
 
   const issues: FormulaIssue[] = [];
-  const state: FormulaParserState = { position: 0 };
+  const totalComposition = new Map<string, number>();
 
-  const parsed = parseGroup(formula, state, issues);
+  // Both the period and the Unicode middle dot are supported
+  // as hydrate separators.
+  const segments = formula.split(/[.·]/);
 
-  if (state.position < formula.length) {
-    const character = formula[state.position];
+  let segmentOffset = 0;
 
-    if (character === ")") {
-      issues.push(
-        createIssue(
-          "UNMATCHED_PARENTHESES",
-          "Unexpected closing parenthesis.",
-          state.position,
-        ),
-      );
-    } else if (issues.length === 0) {
-      issues.push(
-        createIssue(
-          "INVALID_TOKEN",
-          `Unexpected character "${character}".`,
-          state.position,
-        ),
-      );
+  for (let index = 0; index < segments.length; index += 1) {
+    parseFormulaSegment(
+      segments[index],
+      segmentOffset,
+      index,
+      totalComposition,
+      issues,
+    );
+
+    if (issues.length > 0) {
+      break;
     }
+
+    segmentOffset += segments[index].length + 1;
   }
 
   const composition: ElementComposition[] = [];
 
-  for (const [symbol, count] of parsed) {
-    const element = ELEMENTS_BY_SYMBOL.get(symbol);
+  if (issues.length === 0) {
+    for (const [symbol, count] of totalComposition) {
+      const element = ELEMENTS_BY_SYMBOL.get(symbol);
 
-    if (!element) {
-      continue;
+      if (!element) {
+        issues.push(
+          createIssue(
+            "UNKNOWN_ELEMENT",
+            `Unknown element symbol "${symbol}".`,
+          ),
+        );
+        break;
+      }
+
+      composition.push({
+        symbol,
+        atomicNumber: element.atomicNumber,
+        count,
+      });
     }
-
-    composition.push({
-      symbol,
-      atomicNumber: element.atomicNumber,
-      count,
-    });
   }
 
-  return createParseResult(formula, composition, issues);
+  return createParseResult(
+    formula,
+    composition,
+    issues,
+  );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Compound registry                                                          */
+/* -------------------------------------------------------------------------- */
 
 export type CompoundStatus =
   | "DRAFT"
@@ -433,29 +717,52 @@ export interface CompoundRegistry {
   valid: boolean;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord(
+  value: unknown,
+): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+  );
 }
 
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
+function isNonEmptyString(
+  value: unknown,
+): value is string {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0
+  );
 }
 
 function createCompoundIssue(
   message: string,
   compoundId?: string,
 ): CompoundRegistryIssue {
-  return Object.freeze({ message, compoundId });
+  return Object.freeze({
+    message,
+    compoundId,
+  });
 }
 
-function validateCompound(value: unknown): CompoundRegistryIssue[] {
+function validateCompound(
+  value: unknown,
+): CompoundRegistryIssue[] {
   if (!isRecord(value)) {
-    return [createCompoundIssue("Compound entry must be an object.")];
+    return [
+      createCompoundIssue(
+        "Compound entry must be an object.",
+      ),
+    ];
   }
 
   const issues: CompoundRegistryIssue[] = [];
+
   const compoundId =
-    typeof value.id === "string" ? value.id : undefined;
+    typeof value.id === "string"
+      ? value.id
+      : undefined;
 
   if (
     !isNonEmptyString(value.id) ||
@@ -471,13 +778,19 @@ function validateCompound(value: unknown): CompoundRegistryIssue[] {
 
   if (!isNonEmptyString(value.name)) {
     issues.push(
-      createCompoundIssue("Compound name is required.", compoundId),
+      createCompoundIssue(
+        "Compound name is required.",
+        compoundId,
+      ),
     );
   }
 
   if (!isNonEmptyString(value.formula)) {
     issues.push(
-      createCompoundIssue("Compound formula is required.", compoundId),
+      createCompoundIssue(
+        "Compound formula is required.",
+        compoundId,
+      ),
     );
   } else {
     const parsed = parseChemicalFormula(value.formula);
@@ -501,7 +814,10 @@ function validateCompound(value: unknown): CompoundRegistryIssue[] {
     )
   ) {
     issues.push(
-      createCompoundIssue("Compound status is invalid.", compoundId),
+      createCompoundIssue(
+        "Compound status is invalid.",
+        compoundId,
+      ),
     );
   }
 
@@ -625,6 +941,7 @@ function validateCompound(value: unknown): CompoundRegistryIssue[] {
               compoundId,
             ),
           );
+
           continue;
         }
 
@@ -645,7 +962,9 @@ function validateCompound(value: unknown): CompoundRegistryIssue[] {
   return issues;
 }
 
-function freezeCompound(value: unknown): ChemicalCompound | undefined {
+function freezeCompound(
+  value: unknown,
+): ChemicalCompound | undefined {
   if (
     !isRecord(value) ||
     !isRecord(value.source) ||
@@ -657,7 +976,9 @@ function freezeCompound(value: unknown): ChemicalCompound | undefined {
     return undefined;
   }
 
-  const source = Object.freeze({ ...value.source });
+  const source = Object.freeze({
+    ...value.source,
+  });
 
   const reactionIds = Array.isArray(value.reactionIds)
     ? Object.freeze([...value.reactionIds])
@@ -673,23 +994,28 @@ function freezeCompound(value: unknown): ChemicalCompound | undefined {
 export function buildCompoundRegistry(
   compounds: readonly ChemicalCompound[],
 ): CompoundRegistry {
-  const issues: CompoundRegistryIssue[] = [];
-  const seenIds = new Set<string>();
-
   if (!Array.isArray(compounds)) {
     return Object.freeze({
       compounds: Object.freeze([]),
       issues: Object.freeze([
-        createCompoundIssue("Registry entries must be an array."),
+        createCompoundIssue(
+          "Registry entries must be an array.",
+        ),
       ]),
       valid: false,
     });
   }
 
+  const issues: CompoundRegistryIssue[] = [];
+  const seenIds = new Set<string>();
+
   for (const compound of compounds) {
     issues.push(...validateCompound(compound));
 
-    if (isRecord(compound) && typeof compound.id === "string") {
+    if (
+      isRecord(compound) &&
+      typeof compound.id === "string"
+    ) {
       if (seenIds.has(compound.id)) {
         issues.push(
           createCompoundIssue(
@@ -724,7 +1050,10 @@ export function buildCompoundRegistry(
 export function getCompoundElementComposition(
   compound: ChemicalCompound,
 ): FormulaParseResult {
-  if (!compound || typeof compound.formula !== "string") {
+  if (
+    !compound ||
+    typeof compound.formula !== "string"
+  ) {
     return createParseResult("", [], [
       createIssue(
         "EMPTY_FORMULA",
@@ -739,7 +1068,10 @@ export function getCompoundElementComposition(
 export function getCompoundReactionIds(
   compound: ChemicalCompound,
 ): readonly string[] {
-  if (!compound || !Array.isArray(compound.reactionIds)) {
+  if (
+    !compound ||
+    !Array.isArray(compound.reactionIds)
+  ) {
     return Object.freeze([]);
   }
 
