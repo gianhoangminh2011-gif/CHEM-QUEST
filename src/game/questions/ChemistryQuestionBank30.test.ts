@@ -3,15 +3,18 @@ import { describe, it, expect } from 'vitest';
 
 import {
   CHEMISTRY_QUESTION_BANK_30,
+  CHEMISTRY_ANSWER_KEY_30,
   QDA_FIELD_ORDER,
+  validateQuestionBank,
   getQuestionById,
+  getAnswerKey,
   getQuestionsByDifficulty,
   getQuestionsByTopic,
 } from './ChemistryQuestionBank30';
 
 describe('ChemistryQuestionBank30', () => {
   describe('Dataset integrity', () => {
-    it('contains exactly 30 new questions', () => {
+    it('contains exactly 30 questions', () => {
       expect(CHEMISTRY_QUESTION_BANK_30).toHaveLength(30);
     });
 
@@ -23,23 +26,25 @@ describe('ChemistryQuestionBank30', () => {
       expect(new Set(ids).size).toBe(30);
     });
 
-    it('uses the CQ-CHEM-Q001 to CQ-CHEM-Q030 ID range', () => {
+    it('uses sequential IDs from Q001 to Q030', () => {
       const expectedIds = Array.from(
         { length: 30 },
         (_, index) =>
           `CQ-CHEM-Q${String(index + 1).padStart(3, '0')}`,
       );
 
-      const actualIds = CHEMISTRY_QUESTION_BANK_30.map(
-        (question) => question.id,
-      );
+      expect(
+        CHEMISTRY_QUESTION_BANK_30.map((question) => question.id),
+      ).toEqual(expectedIds);
+    });
 
-      expect(actualIds).toEqual(expectedIds);
+    it('passes the built-in dataset validator', () => {
+      expect(validateQuestionBank()).toEqual([]);
     });
   });
 
   describe('Question structure', () => {
-    it('gives every question a non-empty prompt', () => {
+    it('provides a non-empty prompt for every question', () => {
       for (const question of CHEMISTRY_QUESTION_BANK_30) {
         expect(question.prompt.trim().length).toBeGreaterThan(0);
       }
@@ -51,15 +56,15 @@ describe('ChemistryQuestionBank30', () => {
       }
     });
 
-    it('uses A, B, C, D exactly once for every question', () => {
+    it('uses A, B, C, D exactly once per question', () => {
       for (const question of CHEMISTRY_QUESTION_BANK_30) {
         const ids = question.choices.map((choice) => choice.id);
 
-        expect(ids.sort()).toEqual(['A', 'B', 'C', 'D']);
+        expect([...ids].sort()).toEqual(['A', 'B', 'C', 'D']);
       }
     });
 
-    it('gives every choice non-empty text', () => {
+    it('provides non-empty choice text', () => {
       for (const question of CHEMISTRY_QUESTION_BANK_30) {
         for (const choice of question.choices) {
           expect(choice.text.trim().length).toBeGreaterThan(0);
@@ -67,16 +72,46 @@ describe('ChemistryQuestionBank30', () => {
       }
     });
 
-    it('provides an explanation for every question', () => {
+    it('provides explanations and answer-key references', () => {
       for (const question of CHEMISTRY_QUESTION_BANK_30) {
         expect(question.explanation.trim().length).toBeGreaterThan(0);
+        expect(question.answerKeyId).toBe(question.id);
+      }
+    });
+  });
+
+  describe('Answer key integrity', () => {
+    it('contains exactly 30 answer keys', () => {
+      expect(CHEMISTRY_ANSWER_KEY_30).toHaveLength(30);
+    });
+
+    it('has one answer key for every question', () => {
+      const keyIds = CHEMISTRY_ANSWER_KEY_30.map(
+        (key) => key.questionId,
+      );
+
+      expect(new Set(keyIds).size).toBe(30);
+
+      for (const question of CHEMISTRY_QUESTION_BANK_30) {
+        expect(keyIds).toContain(question.id);
       }
     });
 
-    it('provides an answer-key reference for every question', () => {
+    it('points every answer key to an existing choice', () => {
       for (const question of CHEMISTRY_QUESTION_BANK_30) {
-        expect(question.answerKeyId.trim().length).toBeGreaterThan(0);
+        const answerKey = getAnswerKey(question.id);
+
+        expect(answerKey).toBeDefined();
+        expect(
+          question.choices.some(
+            (choice) => choice.id === answerKey?.correctChoiceId,
+          ),
+        ).toBe(true);
       }
+    });
+
+    it('returns undefined for an unknown answer key', () => {
+      expect(getAnswerKey('CQ-CHEM-Q999')).toBeUndefined();
     });
   });
 
@@ -85,25 +120,25 @@ describe('ChemistryQuestionBank30', () => {
       expect(QDA_FIELD_ORDER).toHaveLength(20);
     });
 
-    it('contains all 20 fields in the declared order', () => {
+    it('preserves the declared QDA field order', () => {
       for (const question of CHEMISTRY_QUESTION_BANK_30) {
         expect(Object.keys(question.qda)).toEqual(QDA_FIELD_ORDER);
       }
     });
 
-    it('marks scientific verification as pending', () => {
+    it('keeps scientific verification pending', () => {
       for (const question of CHEMISTRY_QUESTION_BANK_30) {
         expect(question.qda['Scientific Verification']).toBeNull();
       }
     });
 
-    it('does not claim questions are already verified', () => {
+    it('keeps all records in Draft status', () => {
       for (const question of CHEMISTRY_QUESTION_BANK_30) {
         expect(question.qda.Status).toBe('Draft');
       }
     });
 
-    it('does not hardcode the correct answer into the QDA record', () => {
+    it('does not populate Correct Answer prematurely', () => {
       for (const question of CHEMISTRY_QUESTION_BANK_30) {
         expect(question.qda['Correct Answer']).toBeNull();
       }
@@ -111,18 +146,16 @@ describe('ChemistryQuestionBank30', () => {
   });
 
   describe('Difficulty classification', () => {
-    it('uses only D1 through D5', () => {
-      const validDifficulties = ['D1', 'D2', 'D3', 'D4', 'D5'];
+    const difficulties = ['D1', 'D2', 'D3', 'D4', 'D5'] as const;
 
+    it('uses only D1 through D5', () => {
       for (const question of CHEMISTRY_QUESTION_BANK_30) {
-        expect(validDifficulties).toContain(
-          question.qda.Difficulty,
-        );
+        expect(difficulties).toContain(question.qda.Difficulty);
       }
     });
 
-    it('returns only matching questions for each difficulty', () => {
-      for (const difficulty of ['D1', 'D2', 'D3', 'D4', 'D5'] as const) {
+    it('returns only questions matching the requested difficulty', () => {
+      for (const difficulty of difficulties) {
         const result = getQuestionsByDifficulty(difficulty);
 
         for (const question of result) {
@@ -132,28 +165,22 @@ describe('ChemistryQuestionBank30', () => {
     });
 
     it('accounts for all 30 questions across difficulty groups', () => {
-      const groupedQuestions = (
-        ['D1', 'D2', 'D3', 'D4', 'D5'] as const
-      ).flatMap((difficulty) =>
+      const grouped = difficulties.flatMap((difficulty) =>
         getQuestionsByDifficulty(difficulty),
       );
 
-      expect(groupedQuestions).toHaveLength(30);
-
-      const groupedIds = groupedQuestions.map(
-        (question) => question.id,
-      );
-
-      expect(new Set(groupedIds).size).toBe(30);
+      expect(grouped).toHaveLength(30);
+      expect(
+        new Set(grouped.map((question) => question.id)).size,
+      ).toBe(30);
     });
   });
 
   describe('Lookup functions', () => {
     it('finds an existing question by ID', () => {
-      const question = getQuestionById('CQ-CHEM-Q001');
-
-      expect(question).toBeDefined();
-      expect(question?.id).toBe('CQ-CHEM-Q001');
+      expect(getQuestionById('CQ-CHEM-Q001')?.id).toBe(
+        'CQ-CHEM-Q001',
+      );
     });
 
     it('returns undefined for an unknown question ID', () => {
@@ -166,6 +193,10 @@ describe('ChemistryQuestionBank30', () => {
 
       expect(typeof topic).toBe('string');
 
+      if (typeof topic !== 'string') {
+        throw new Error('Question topic must be a string');
+      }
+
       const result = getQuestionsByTopic(topic);
 
       expect(result.length).toBeGreaterThan(0);
@@ -174,16 +205,20 @@ describe('ChemistryQuestionBank30', () => {
         expect(question.qda.Topic).toBe(topic);
       }
     });
+
+    it('returns an empty array for an unknown topic', () => {
+      expect(getQuestionsByTopic('Unknown Topic')).toEqual([]);
+    });
   });
 
   describe('Dataset independence', () => {
-    it('does not contain duplicate question objects', () => {
-      const references = new Set(CHEMISTRY_QUESTION_BANK_30);
-
-      expect(references.size).toBe(30);
+    it('contains 30 distinct question object references', () => {
+      expect(
+        new Set(CHEMISTRY_QUESTION_BANK_30).size,
+      ).toBe(30);
     });
 
-    it('does not contain empty or placeholder question IDs', () => {
+    it('uses the expected question ID format', () => {
       for (const question of CHEMISTRY_QUESTION_BANK_30) {
         expect(question.id).toMatch(/^CQ-CHEM-Q\d{3}$/);
       }
