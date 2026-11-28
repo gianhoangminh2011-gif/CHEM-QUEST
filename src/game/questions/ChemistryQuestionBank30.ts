@@ -1,4 +1,3 @@
-
 /**
  * CHEM QUEST — Independent Chemistry Question Bank
  * Version: 1.0.0
@@ -102,7 +101,7 @@ function makeQuestion(
   difficulty: Difficulty,
   prompt: string,
   choices: readonly QuestionChoice[],
-  answer: QuestionChoice["id"],
+  _answer: QuestionChoice["id"],
   explanation: string,
   source: string,
 ): ChemistryQuestion {
@@ -455,7 +454,7 @@ export const CHEMISTRY_QUESTION_BANK_30 = [
 
   makeQuestion(
     28, "Organic Chemistry", "D2",
-    "Công thức tổng quát của alkane mạch hở có một vòng? Không xét vòng, chỉ xét alkane mạch hở no là gì?",
+    "Công thức tổng quát của alkane mạch hở no là gì?",
     [
       c("A", "CₙH₂ₙ₊₂"),
       c("B", "CₙH₂ₙ"),
